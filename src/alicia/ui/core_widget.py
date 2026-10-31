@@ -128,7 +128,7 @@ class AliciaCore(QWidget):
         if not movie.isValid():
             self._playing = ""
             return False
-        movie.setCacheMode(QMovie.CacheMode.CacheAll)
+        movie.setCacheMode(QMovie.CacheMode.CacheNone)  # image par image : peu de mémoire
         movie.frameChanged.connect(lambda frame: self._frame_changed(movie, frame, once))
         self._movie = movie
         movie.start()
