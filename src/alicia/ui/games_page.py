@@ -136,6 +136,14 @@ class GamesPage(QStackedWidget):
         self.add_button.clicked.connect(lambda: self.open_game(None))
         head.addWidget(self.add_button)
         layout.addLayout(head)
+        hidden_row = QHBoxLayout()
+        self.hidden_label = _muted("")
+        self.unhide_button = QPushButton("Remettre les jeux retirés")
+        self.unhide_button.setObjectName("ghost")
+        self.unhide_button.clicked.connect(self._unhide)
+        hidden_row.addWidget(self.hidden_label, 1)
+        hidden_row.addWidget(self.unhide_button)
+        layout.addLayout(hidden_row)
         layout.addWidget(
             _muted(
                 "Pour chaque jeu, ALICIA sait de quoi il s'agit et cherche d'abord sur tes "
@@ -160,6 +168,14 @@ class GamesPage(QStackedWidget):
             item = self.grid.takeAt(0)
             if item.widget() is not None:
                 item.widget().deleteLater()
+        hidden = self.store.hidden_keys()
+        self.hidden_label.setText(
+            f"{len(hidden)} jeu{'x' if len(hidden) > 1 else ''} retiré{'s' if len(hidden) > 1 else ''}"
+            " de ta liste."
+            if hidden
+            else ""
+        )
+        self.unhide_button.setVisible(bool(hidden))
         active = self.active_game()
         cards = []
         for profile in self.store.games():
@@ -272,6 +288,12 @@ class GamesPage(QStackedWidget):
             "Reprend le programme et le dossier de la fenêtre observée (onglet Jeux, à droite)"
         )
         self.fill_button.clicked.connect(self._fill_from_window)
+        self.browse_button = QPushButton("Choisir le .exe du jeu…")
+        self.browse_button.setToolTip(
+            "Va chercher le programme du jeu sur ton disque : COP'IA'LOTE le reconnaîtra à "
+            "coup sûr, même si sa fenêtre a un titre bizarre"
+        )
+        self.browse_button.clicked.connect(self._browse_exe)
         self.context_input = QPlainTextEdit()
         self.context_input.setPlaceholderText(
             "Ce qu'ALICIA doit savoir : le genre, ce qui compte à l'écran, les pièges…"
@@ -295,7 +317,7 @@ class GamesPage(QStackedWidget):
             ),
             self.folder_input,
             self.window_hint,
-            self.fill_button,
+            self._row(self.fill_button, self.browse_button),
             _title("CE QU'ALICIA SAIT DU JEU"),
             (self.context_input, 1),
         )
@@ -313,7 +335,7 @@ class GamesPage(QStackedWidget):
         self.reset_button.clicked.connect(self._reset)
         self.delete_button = QPushButton("Supprimer ce jeu")
         self.delete_button.setObjectName("ghost")
-        self.delete_button.clicked.connect(self._reset)
+        self.delete_button.clicked.connect(self._delete)
         self.save_button = QPushButton("Enregistrer")
         self.save_button.setObjectName("primary")
         self.save_button.clicked.connect(self.save)
@@ -323,6 +345,13 @@ class GamesPage(QStackedWidget):
         bottom.addWidget(self.saved_label)
         bottom.addWidget(self.save_button)
         layout.addLayout(bottom)
+
+    @staticmethod
+    def _row(*widgets: QWidget) -> QHBoxLayout:
+        row = QHBoxLayout()
+        for widget in widgets:
+            row.addWidget(widget)
+        return row
 
     @staticmethod
     def _panel(*items) -> QFrame:  # type: ignore[no-untyped-def]
@@ -383,7 +412,8 @@ class GamesPage(QStackedWidget):
         builtin = key is not None and self.store.is_builtin(key)
         self.reset_button.setVisible(builtin)
         self.reset_button.setEnabled(builtin and self.store.is_modified(key or ""))
-        self.delete_button.setVisible(key is not None and not builtin)
+        self.delete_button.setVisible(key is not None)
+        self.delete_button.setText("Retirer de ma liste" if builtin else "Supprimer ce jeu")
         self.use_button.setEnabled(key is not None)
         self.copy_button.setEnabled(key is not None)
         self.setCurrentWidget(self.detail_page)
@@ -460,7 +490,8 @@ class GamesPage(QStackedWidget):
         builtin = self.store.is_builtin(key)
         self.reset_button.setVisible(builtin)
         self.reset_button.setEnabled(builtin)
-        self.delete_button.setVisible(not builtin)
+        self.delete_button.setVisible(True)
+        self.delete_button.setText("Retirer de ma liste" if builtin else "Supprimer ce jeu")
         self.use_button.setEnabled(True)
         self.copy_button.setEnabled(True)
         self.games_changed.emit()
@@ -477,6 +508,46 @@ class GamesPage(QStackedWidget):
             self.saved_label.setText("Original rétabli ✓")
         else:
             self.show_list()
+
+    def _delete(self) -> None:
+        """Jeu fourni : retiré de la liste (rétablissable) ; jeu ajouté : supprimé."""
+        if self.editing is None:
+            return
+        self.store.hide(self.editing)
+        self.games_changed.emit()
+        self.show_list()
+
+    def _unhide(self) -> None:
+        self.store.unhide_all()
+        self.games_changed.emit()
+        self.refresh()
+
+    def _browse_exe(self) -> None:
+        from PySide6.QtWidgets import QFileDialog
+
+        path, _ = QFileDialog.getOpenFileName(
+            self, "Programme du jeu", "C:/Program Files", "Programmes (*.exe)"
+        )
+        if path:
+            self.add_exe(path)
+
+    def add_exe(self, path: str) -> None:
+        """Ajoute un programme (et son dossier d'installation) à la reconnaissance."""
+        exe = path.replace("\\", "/").split("/")[-1].lower()
+        if not exe.endswith(".exe"):
+            return
+        exes = _split(self.exe_input.text())
+        if exe not in exes:
+            exes.append(exe)
+        self.exe_input.setText(", ".join(exes))
+        folder = _install_folder(path)
+        folders = _split(self.folder_input.text())
+        if folder and folder not in folders and folder not in ("bin", "binaries", "win64", "x64"):
+            folders.append(folder)
+        self.folder_input.setText(", ".join(folders))
+        if not self.name_input.text().strip():
+            self.name_input.setText(exe.removesuffix(".exe"))
+        self.saved_label.setText("Pense à enregistrer.")
 
     def _fill_from_window(self) -> None:
         window = self.current_window()

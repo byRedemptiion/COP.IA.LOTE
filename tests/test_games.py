@@ -135,3 +135,35 @@ def test_duplicate_makes_a_new_version_with_its_own_folder(qt_app, tmp_path):
     assert key == "wow-ptr-perso"
     assert resolve_profile(window, profiles=store.profiles).key == key
     assert store.profiles["wow-retail"].folders  # l'original est intact
+
+
+def test_builtin_game_can_be_removed_and_brought_back(tmp_path):
+    store = GameStore(tmp_path / "games.toml")
+    assert "wow-classic" in store.profiles
+    store.hide("wow-classic")
+    assert "wow-classic" not in store.profiles and store.hidden_keys() == ["wow-classic"]
+    assert not store.is_modified("wow-classic")
+    reloaded = GameStore(tmp_path / "games.toml")
+    assert "wow-classic" not in reloaded.profiles
+    reloaded.unhide_all()
+    assert "wow-classic" in reloaded.profiles and reloaded.hidden_keys() == []
+
+
+def test_games_tab_removes_a_game_and_picks_an_exe(qt_app, tmp_path):
+    from alicia.ui.games_page import GamesPage
+
+    page = GamesPage(GameStore(tmp_path / "games.toml"))
+    page.open_game("wow-classic")
+    assert page.delete_button.text() == "Retirer de ma liste"
+    page.delete_button.click()
+    assert "wow-classic" not in page.store.profiles
+    assert page.unhide_button.isVisibleTo(page) and "1 jeu retiré" in page.hidden_label.text()
+
+    page.open_game(None)
+    page.add_exe("C:\\Program Files\\Ubisoft\\Tom Clancy's Rainbow Six Siege\\RainbowSix.exe")
+    assert page.exe_input.text() == "rainbowsix.exe"
+    assert page.folder_input.text() == "tom clancy's rainbow six siege"
+    page.name_input.setText("Rainbow Six Siege")
+    key = page.save()
+    window = WindowInfo(1, "Rainbow Six", 2, exe_name="RainbowSix.exe")
+    assert resolve_profile(window, "auto", page.store.profiles).key == key

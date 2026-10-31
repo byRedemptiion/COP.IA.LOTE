@@ -103,7 +103,30 @@ class GameStore:
         return key in self._builtin_keys
 
     def is_modified(self, key: str) -> bool:
-        return self.is_builtin(key) and key in self._user_entries()
+        entry = self._user_entries().get(key, {})
+        return self.is_builtin(key) and any(name != "hidden" for name in entry)
+
+    def hidden_keys(self) -> list[str]:
+        """Les jeux retirés de la liste (on peut les remettre)."""
+        return [k for k, v in self._user_entries().items() if v.get("hidden")]
+
+    def hide(self, key: str) -> None:
+        """Retire un jeu de la liste (un jeu fourni reste rétablissable)."""
+        if not self.is_builtin(key):
+            self.reset(key)  # un jeu ajouté par le joueur est simplement supprimé
+            return
+        entries = self._user_entries()
+        entries.setdefault(key, {})["hidden"] = True
+        self._write(entries)
+        log.info("Jeu retiré de la liste : %s", key)
+
+    def unhide_all(self) -> None:
+        entries = self._user_entries()
+        for key in list(entries):
+            if entries[key].pop("hidden", None) is not None and not entries[key]:
+                entries.pop(key)
+        self._write(entries)
+        log.info("Jeux retirés remis dans la liste")
 
     def _user_entries(self) -> dict[str, dict]:
         if not self.user_file.is_file():
@@ -139,6 +162,7 @@ class GameStore:
             clean = normalize_site(site)
             if clean and clean not in sources:
                 sources.append(clean)
+        hidden = entries.get(key, {}).get("hidden")
         entries[key] = {
             "name": name,
             "folder": [f.strip().strip("\\/").lower() for f in draft.folders if f.strip()],
@@ -147,6 +171,8 @@ class GameStore:
             "sources": sources,
             "context": draft.context.strip(),
         }
+        if hidden:
+            entries[key]["hidden"] = True
         self._write(entries)
         log.info("Jeu enregistré : %s (%d sites)", name, len(sources))
         return key
@@ -165,7 +191,9 @@ class GameStore:
         for key, entry in entries.items():
             lines = [f"[{key}]"]
             for name, value in entry.items():
-                if isinstance(value, list):
+                if isinstance(value, bool):
+                    lines.append(f"{name} = {'true' if value else 'false'}")
+                elif isinstance(value, list):
                     lines.append(f"{name} = {_toml_list([str(v) for v in value])}")
                 else:
                     lines.append(f"{name} = {_toml_string(str(value))}")

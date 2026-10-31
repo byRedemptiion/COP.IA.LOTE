@@ -3,4 +3,4 @@
 Le paquet garde son nom technique « alicia » pour que les mises à jour restent compatibles.
 """
 
-__version__ = "0.7.0"
+__version__ = "0.7.1"

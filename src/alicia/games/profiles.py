@@ -73,6 +73,8 @@ def _strings(value: object) -> tuple[str, ...]:
 def _parse(data: dict, origin: str) -> dict[str, GameProfile]:
     profiles = {}
     for key, entry in data.items():
+        if isinstance(entry, dict):
+            entry = {k: v for k, v in entry.items() if k != "hidden"}
         if not isinstance(entry, dict):
             log.warning(
                 "Profil de jeu « %s » ignoré dans %s : ce n'est pas une section", key, origin
@@ -115,6 +117,8 @@ def load_profiles(user_file: Path | None = None) -> dict[str, GameProfile]:
                     data[key] = {**base, **entry}
                 else:
                     data[key] = entry
+    # « hidden = true » : jeu retiré de la liste par le joueur (même un jeu fourni)
+    data = {k: v for k, v in data.items() if not (isinstance(v, dict) and v.get("hidden"))}
     profiles = {"generic": GENERIC}
     profiles.update(_parse(data, "games.toml"))
     return profiles
