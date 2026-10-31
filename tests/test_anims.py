@@ -73,9 +73,12 @@ def test_window_uses_the_robot_folder(qt_app, tmp_path, monkeypatch):
         window.change_setting("anims_reload", True)
         assert "idle" in window.settings_page.anims_state.text()
         assert window.core._playing == "idle.webp"
+        assert window.orb.core._playing == "idle.webp"  # le rond du mode bulle aussi
+        window._core("thinking")
+        assert window.orb.core.state == "thinking"
         config = window._overlay_config()
         assert "wake.webp" in config["anims"] and config["durations"]["wake"] >= 200
         window.overlay_gesture("wake")
-        assert window.core._playing == "wake.webp"
+        assert window.core._playing == "wake.webp" and window.orb.core._playing == "wake.webp"
     finally:
         window.close()
