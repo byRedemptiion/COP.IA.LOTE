@@ -210,6 +210,7 @@ class MainWindow(QMainWindow):
         self.tray = self._build_tray(icon)
         self._attach_logs()
         self._setup_copilot()
+        self._reload_anims()
         self.refresh_windows()
         self._update_state()
         self._setup_hotkey()
@@ -943,9 +944,12 @@ class MainWindow(QMainWindow):
             from PySide6.QtCore import QUrl
             from PySide6.QtGui import QDesktopServices
 
-            folder = state_dir() / "overlay"
+            folder = self._anim_folder()
             folder.mkdir(parents=True, exist_ok=True)
             QDesktopServices.openUrl(QUrl.fromLocalFile(str(folder)))
+            self._reload_anims()
+        elif key == "anims_reload":
+            self._reload_anims()
         elif key == "duo":
             self.set_duo(bool(value))
         elif key in ("duo_code", "duo_new_code"):
@@ -1238,11 +1242,12 @@ class MainWindow(QMainWindow):
         from alicia.ui import theme
 
         persona = current_persona()
-        folder = state_dir() / "overlay"
+        folder = self._anim_folder()
         try:
             anims = sorted(p.name for p in folder.iterdir() if p.is_file())
         except OSError:
             anims = []
+        durations = self._gesture_durations(folder)
         return {
             "name": persona.title,
             "crop": list(persona.face_crop),
@@ -1256,7 +1261,39 @@ class MainWindow(QMainWindow):
             },
             "states": {key: color.name() for key, color in theme.STATE_COLORS.items()},
             "anims": anims,
+            "durations": durations,
         }
+
+    @staticmethod
+    def _anim_folder():  # type: ignore[no-untyped-def]
+        """Dossier des animations du robot (anims\\viirus) ; l'ancien dossier overlay sinon."""
+        from alicia.core.anims import anim_dir
+
+        folder = anim_dir()
+        legacy = state_dir() / "overlay"
+        if not folder.is_dir() and legacy.is_dir() and any(legacy.iterdir()):
+            return legacy
+        return folder
+
+    @staticmethod
+    def _gesture_durations(folder) -> dict:  # type: ignore[no-untyped-def,type-arg]
+        """Durée (ms) de chaque geste animé, pour que l'overlay revienne à l'état à temps."""
+        from PySide6.QtGui import QMovie
+
+        from alicia.core.anims import GESTURES, find
+
+        durations = {}
+        for name in GESTURES:
+            path = find(name, folder, (".webp", ".gif"))
+            if path is None:
+                continue
+            movie = QMovie(str(path))
+            total = 0
+            for index in range(max(0, movie.frameCount())):
+                movie.jumpToFrame(index)
+                total += max(20, movie.nextFrameDelay())
+            durations[name] = total or 2000
+        return durations
 
     @staticmethod
     def _overlay_portrait() -> bytes:
@@ -1288,12 +1325,12 @@ class MainWindow(QMainWindow):
             self.settings_page.show_overlay(None)
             return
         if self.overlay is None:
-            (state_dir() / "overlay").mkdir(parents=True, exist_ok=True)
+            self._anim_folder().mkdir(parents=True, exist_ok=True)
             self.overlay = OverlayServer(
                 stream.overlay_port,
                 self._overlay_config,
                 self._overlay_portrait,
-                state_dir() / "overlay",
+                self._anim_folder(),
             )
         if self.overlay.start():
             self.bubble.mirror = self.overlay.publish
@@ -1320,6 +1357,10 @@ class MainWindow(QMainWindow):
         self._overlay_sent = (state, level)
 
     def overlay_gesture(self, name: str) -> None:
+        """Geste du robot : dans le rond (si l'animation existe) et sur l'overlay OBS."""
+        for core in (self.core, getattr(self.orb, "core", None)):
+            if core is not None:
+                core.play_gesture(name)
         if self.overlay is not None:
             self.overlay.publish("gesture", name=name)
 
@@ -2319,6 +2360,7 @@ class MainWindow(QMainWindow):
         if self._speech_mark is None:
             self._speech_frame = self._live_frame()
         self._core("listening")
+        self.overlay_gesture("wake")  # il se « réveille » quand on l'appelle
         self._set_status("🎙 Je t'écoute…")
         if self._bubble_active():
             self.bubble.ask("🎙 …")
@@ -3211,6 +3253,20 @@ class MainWindow(QMainWindow):
             self.stop_voice_button.setEnabled(True)
             return True
         return False
+
+    def _reload_anims(self) -> None:
+        """Relit le dossier d'animations (après y avoir déposé des fichiers)."""
+        from alicia.core.anims import inventory
+
+        folder = self._anim_folder()
+        for core in (self.core, getattr(self.orb, "core", None)):
+            if core is not None:
+                core.load_anims(folder)
+        found = inventory(folder)
+        self.settings_page.show_anims(str(folder), found)
+        if self.overlay is not None:
+            self.overlay.publish("reload")  # la page OBS relit la liste
+        log.info("Animations : %d trouvée(s) dans %s", len(found), folder)
 
     def _flash_error(self) -> None:
         self._core("error")

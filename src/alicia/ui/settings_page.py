@@ -265,6 +265,34 @@ class SettingsPage(QWidget):
         grid.setColumnStretch(2, 1)
         self._tab_layouts["profile"].addWidget(profile)
 
+        anims_panel, grid = _panel()
+        grid.addWidget(_title("ANIMATIONS DU ROBOT"), 0, 0, 1, 3)
+        self.anims_folder = QLineEdit()
+        self.anims_folder.setReadOnly(True)
+        open_folder = QPushButton("Ouvrir le dossier")
+        open_folder.clicked.connect(lambda: self._emit("overlay_folder", True))
+        reload_anims = QPushButton("Recharger")
+        reload_anims.clicked.connect(lambda: self._emit("anims_reload", True))
+        grid.addWidget(QLabel("Dossier"), 1, 0)
+        grid.addWidget(self.anims_folder, 1, 1)
+        grid.addWidget(open_folder, 1, 2)
+        self.anims_state = _muted("")
+        grid.addWidget(self.anims_state, 2, 1)
+        grid.addWidget(reload_anims, 2, 2)
+        anims_help = _muted(
+            "Dépose tes animations dans ce dossier puis clique <b>Recharger</b>. Images "
+            "<b>carrées 512 × 512</b>, centrées sur le robot, en <b>.webp animé</b> (ou .gif). "
+            "États en boucle : <b>idle</b>, <b>listening</b>, <b>thinking</b>, <b>speaking</b>, "
+            "<b>action</b>, <b>error</b>. Gestes joués une fois : <b>wake</b>, <b>nod</b>, "
+            "<b>shake</b>, <b>hop</b>, <b>spin</b>, <b>wiggle</b>, <b>look</b>. Bouche qui suit "
+            "la voix : <b>speaking_0.png</b> (fermée), <b>speaking_1.png</b>, "
+            "<b>speaking_2.png</b>. Seul <b>idle</b> est indispensable ; ce qui manque garde le "
+            "portrait."
+        )
+        anims_help.setTextFormat(Qt.TextFormat.RichText)
+        grid.addWidget(anims_help, 3, 0, 1, 3)
+        self._tab_layouts["profile"].addWidget(anims_panel)
+
         # --- Vision ------------------------------------------------------------------------------
         vision, grid = _panel()
         grid.addWidget(_title("VISION"), 0, 0, 1, 3)
@@ -529,9 +557,8 @@ class SettingsPage(QWidget):
             "sous-titres.<br>Options à ajouter à l'adresse : <b>?size=200</b> (taille), "
             "<b>&amp;bulle=0</b> (sans sous-titres), <b>&amp;side=top</b> (sous-titres "
             "au-dessus), <b>&amp;roam=1</b> (elle se promène : mets la source en 1920 × 1080)."
-            "<br>Animations de Nova : dépose <b>idle.webm</b>, <b>speaking.webm</b>, "
-            "<b>listening.webm</b>, <b>thinking.webm</b>, <b>nod.webm</b>… dans le dossier des "
-            "animations (vidéos à fond transparent), puis recharge la source dans OBS."
+            "<br>Animations : voir Réglages → Profil → Animations (les mêmes fichiers servent "
+            "au rond de l'appli et à OBS)."
         )
         obs_help.setTextFormat(Qt.TextFormat.RichText)
         grid.addWidget(obs_help, 6, 0, 1, 3)
@@ -1110,6 +1137,21 @@ class SettingsPage(QWidget):
         box.addWidget(widget)
         self.stack.addWidget(holder)
         self.tabs[key] = holder
+
+    def show_anims(self, folder: str, found: dict) -> None:  # type: ignore[type-arg]
+        self.anims_folder.setText(folder)
+        if not found:
+            self.anims_state.setText("Aucune animation pour l'instant : le portrait est utilisé.")
+            return
+        missing = [
+            n
+            for n in ("idle", "listening", "thinking", "speaking", "action", "error")
+            if n not in found
+        ]
+        text = "✓ Trouvées : " + ", ".join(found)
+        if missing:
+            text += " — manquent : " + ", ".join(missing)
+        self.anims_state.setText(text)
 
     def show_personality(self, text: str) -> None:
         self.personality_state.setText(text)

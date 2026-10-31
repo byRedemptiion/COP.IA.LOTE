@@ -12,7 +12,7 @@ from collections.abc import Callable
 from importlib import resources
 
 from PySide6.QtCore import QPointF, QRectF, Qt, QTimer
-from PySide6.QtGui import QColor, QPainter, QPainterPath, QPen, QPixmap, QRadialGradient
+from PySide6.QtGui import QColor, QMovie, QPainter, QPainterPath, QPen, QPixmap, QRadialGradient
 from PySide6.QtWidgets import QSizePolicy, QWidget
 
 from alicia.core.persona import current as current_persona
@@ -50,6 +50,13 @@ class AliciaCore(QWidget):
         super().__init__(parent)
         self.portrait = self._load_portrait(portrait)
         self.show_labels = show_labels
+        # Animations du personnage (facultatives) : dossier anims\<nom>\, voir core/anims.py
+        self._movie: QMovie | None = None
+        self._still: QPixmap | None = None
+        self._playing = ""
+        self._gesture = ""
+        self._lips: list[QPixmap] = []
+        self.anim_folder = None
         self.setMinimumSize(minimum, minimum)
         self.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Expanding)
         self.state = "idle"
@@ -63,6 +70,7 @@ class AliciaCore(QWidget):
         self._timer.setInterval(33)  # ~30 images/s : fluide et léger
         self._timer.timeout.connect(self._tick)
         self._timer.start()
+        self.load_anims()
 
     @staticmethod
     def _load_portrait(path: str | None) -> QPixmap | None:
@@ -78,22 +86,109 @@ class AliciaCore(QWidget):
             return None
         return None if pixmap.isNull() else pixmap
 
+    # --- animations -----------------------------------------------------------------------------
+
+    def load_anims(self, folder=None) -> None:  # type: ignore[no-untyped-def]
+        """(Re)lit le dossier d'animations du personnage."""
+        from alicia.core import anims
+
+        self.anim_folder = folder or anims.anim_dir()
+        custom = anims.find("portrait", self.anim_folder, (".png", ".webp", ".jpg"))
+        if custom is not None:
+            pixmap = QPixmap(str(custom))
+            if not pixmap.isNull():
+                self.portrait = pixmap
+        self._lips = [QPixmap(str(p)) for p in anims.lip_frames(self.anim_folder)]
+        self._lips = [p for p in self._lips if not p.isNull()]
+        self._playing = ""
+        self._play(self.state)
+
+    def _stop_movie(self) -> None:
+        if self._movie is not None:
+            self._movie.stop()
+            self._movie.deleteLater()
+        self._movie, self._still = None, None
+
+    def _play(self, name: str, once: bool = False) -> bool:
+        from alicia.core import anims
+
+        if self.anim_folder is None:
+            return False
+        path = anims.find(name, self.anim_folder)
+        if path is None:
+            return name != "idle" and not once and self._play("idle")
+        if self._playing == path.name:
+            return True
+        self._stop_movie()
+        self._playing = path.name
+        if path.suffix == ".png":
+            self._still = QPixmap(str(path))
+            return True
+        movie = QMovie(str(path))
+        if not movie.isValid():
+            self._playing = ""
+            return False
+        movie.setCacheMode(QMovie.CacheMode.CacheAll)
+        movie.frameChanged.connect(lambda frame: self._frame_changed(movie, frame, once))
+        self._movie = movie
+        movie.start()
+        if not self.isVisible():
+            movie.setPaused(True)
+        return True
+
+    def _frame_changed(self, movie: QMovie, frame: int, once: bool) -> None:
+        if once and movie.frameCount() > 0 and frame >= movie.frameCount() - 1:
+            QTimer.singleShot(movie.nextFrameDelay(), self._gesture_done)
+        self.update()
+
+    def _gesture_done(self) -> None:
+        self._gesture = ""
+        self._playing = ""
+        self._play(self.state)
+
+    def play_gesture(self, name: str) -> bool:
+        """Geste joué une fois (wake, nod, shake, hop…), puis retour à l'état en cours."""
+        from alicia.core import anims
+
+        if self.anim_folder is None or anims.find(name, self.anim_folder) is None:
+            return False
+        self._gesture = name
+        self._playing = ""
+        return self._play(name, once=True)
+
+    def _frame(self) -> QPixmap | None:
+        """L'image à mettre dans le rond : bouche, animation, ou rien (portrait)."""
+        if self.state == "speaking" and self._lips and not self._gesture:
+            index = min(len(self._lips) - 1, int(self._level * len(self._lips) * 1.6))
+            return self._lips[index]
+        if self._movie is not None:
+            pixmap = self._movie.currentPixmap()
+            return None if pixmap.isNull() else pixmap
+        return self._still
+
     # --- état -----------------------------------------------------------------------------------
 
     def set_state(self, state: str, level_source: Callable[[], float] | None = None) -> None:
         if state not in STATE_COLORS:
             state = "idle"
+        changed = state != self.state
         self.state = state
         self.level_source = level_source
+        if changed and not self._gesture:
+            self._play(state)
         self.update()
 
     def showEvent(self, event) -> None:  # type: ignore[no-untyped-def]  # noqa: N802
         super().showEvent(event)
         self._timer.start()
+        if self._movie is not None:
+            self._movie.setPaused(False)
 
     def hideEvent(self, event) -> None:  # type: ignore[no-untyped-def]  # noqa: N802
         super().hideEvent(event)
         self._timer.stop()
+        if self._movie is not None:
+            self._movie.setPaused(True)  # rien ne tourne pendant que le rond est caché
 
     def _tick(self) -> None:
         window = self.window()
@@ -208,7 +303,21 @@ class AliciaCore(QWidget):
         painter.setPen(Qt.PenStyle.NoPen)
         painter.setBrush(QColor(6, 12, 46, 245))
         painter.drawEllipse(core_center, core_r, core_r)
-        if self.portrait is not None:
+        frame = self._frame()
+        if frame is not None:
+            # Animation : image carrée cadrée sur le robot, qui remplit le rond
+            painter.save()
+            clip = QPainterPath()
+            clip.addEllipse(core_center, core_r, core_r)
+            painter.setClipPath(clip)
+            side = min(frame.width(), frame.height())
+            source = QRectF((frame.width() - side) / 2, (frame.height() - side) / 2, side, side)
+            target = QRectF(
+                core_center.x() - core_r, core_center.y() - core_r, core_r * 2, core_r * 2
+            )
+            painter.drawPixmap(target, frame, source)
+            painter.restore()
+        elif self.portrait is not None:
             painter.save()
             clip = QPainterPath()
             clip.addEllipse(core_center, core_r, core_r)
