@@ -365,6 +365,21 @@ class MainWindow(QMainWindow):
         self.sources_label.setOpenExternalLinks(True)
         self.sources_label.setTextFormat(Qt.TextFormat.RichText)
         self.sources_label.setObjectName("muted")
+        # Guide : ouvrir la page trouvée, ou montrer son image par-dessus le jeu
+        self.guide_button = QPushButton("📖  Ouvrir le guide")
+        self.guide_button.clicked.connect(lambda: self.open_guide())
+        self.guide_image_button = QPushButton("🖼  Voir l'image")
+        self.guide_image_button.clicked.connect(lambda: self.show_guide_image())
+        self.guide_row = QWidget()
+        guide_box = QHBoxLayout(self.guide_row)
+        guide_box.setContentsMargins(0, 0, 0, 0)
+        guide_box.addWidget(self.guide_button)
+        guide_box.addWidget(self.guide_image_button)
+        guide_box.addStretch(1)
+        self.guide_row.setVisible(False)
+        self._guide_sources: list = []  # type: ignore[type-arg]
+        self._guide_preferred: tuple[str, ...] = ()
+        self.image_panel = None
         self.answer_info = QLabel("")
         self.answer_info.setObjectName("muted")
         self.answer_info.setWordWrap(True)
@@ -428,6 +443,7 @@ class MainWindow(QMainWindow):
             self.asked_label,
             (self.answer, 1),
             self.sources_label,
+            self.guide_row,
             self.answer_info,
             options,
         )
@@ -1379,9 +1395,17 @@ class MainWindow(QMainWindow):
         from alicia.core.actions.controller import ActionReply
         from alicia.core.copilot import parse_copilot_command
         from alicia.core.duo import parse_duo_request
+        from alicia.core.guide import parse_guide_command
         from alicia.core.people import known_names
         from alicia.core.persona import PERSONAS
 
+        guide = parse_guide_command(text)  # « ouvre le guide », « montre-moi la carte »
+        if guide is not None:
+            return ActionReply(
+                "J'ouvre le guide." if guide == "open" else "Voilà l'image.",
+                "guide_open" if guide == "open" else "guide_image",
+                done=True,
+            )
         wanted = parse_copilot_command(text)  # « active / désactive le copilote »
         if wanted is not None:
             return ActionReply(
@@ -2656,6 +2680,8 @@ class MainWindow(QMainWindow):
             timeline.clear()
         if hasattr(self, "copilot_timer"):
             self.copilot_timer.stop()
+        if getattr(self, "image_panel", None) is not None:
+            self.image_panel.close()
         if self.ollama_runtime is not None:
             # Les modèles quittent la VRAM tout de suite (sinon Ollama les garde quelques minutes)
             ai = self.services.settings.ai
@@ -3017,6 +3043,13 @@ class MainWindow(QMainWindow):
             return
         if reply.intent in ("copilot_on", "copilot_off"):
             self.set_copilot(reply.intent == "copilot_on")
+        if reply.intent == "guide_open" and not self.open_guide():
+            reply.text = (
+                "Je n'ai pas encore de page à ouvrir : pose ta question avec la recherche web, "
+                "puis redemande-moi."
+            )
+        if reply.intent == "guide_image" and not self.show_guide_image():
+            reply.text = "Je n'ai pas encore de page avec une image : pose d'abord ta question."
         if outcome.transcript is not None:
             self.question.setText(f"🎙 {outcome.transcript}")
         asked = outcome.transcript or self.question.text().strip()
@@ -3235,6 +3268,62 @@ class MainWindow(QMainWindow):
             notes.append("Recherche web refusée par le modèle : réponse sans recherche.")
         self.sources_label.setText("<br>".join(notes))
 
+    # --- guides : page et image ---------------------------------------------------------
+
+    def _remember_guide(self, result, profile_key: str) -> None:  # type: ignore[no-untyped-def]
+        from alicia.games.profiles import all_profiles
+
+        if result.sources:
+            self._guide_sources = list(result.sources)
+            profile = all_profiles().get(profile_key)
+            self._guide_preferred = profile.sources if profile is not None else ()
+        self.guide_row.setVisible(bool(result.sources))
+
+    def _guide_source(self):  # type: ignore[no-untyped-def]
+        from alicia.core.guide import pick_source
+
+        return pick_source(self._guide_sources, self._guide_preferred)
+
+    def open_guide(self, auto: bool = False) -> bool:
+        """Ouvre dans le navigateur la page trouvée (jamais une adresse inventée par l'IA)."""
+        from PySide6.QtCore import QUrl
+        from PySide6.QtGui import QDesktopServices
+
+        source = self._guide_source()
+        if source is None:
+            return False
+        log.info("Guide ouvert%s : %s", " (demandé par l'IA)" if auto else "", source.title)
+        if not self.services.demo:
+            QDesktopServices.openUrl(QUrl(source.url))
+        self._notify(f"📖 Guide ouvert : {source.title}")
+        return True
+
+    def show_guide_image(self, auto: bool = False) -> bool:
+        """Montre l'image de la page trouvée dans un panneau par-dessus le jeu."""
+        from alicia.core.guide import fetch_preview
+
+        source = self._guide_source()
+        if source is None:
+            return False
+        log.info("Guide : image demandée%s (%s)", " par l'IA" if auto else "", source.title)
+
+        def done(preview) -> None:  # type: ignore[no-untyped-def]
+            if preview is None:
+                self._notify("🖼 Pas d'image sur cette page : ouvre le guide pour la voir.")
+                return
+            from alicia.ui.image_panel import ImagePanel
+
+            if self.image_panel is None:
+                self.image_panel = ImagePanel()
+            if not self.image_panel.show_image(preview.image, preview.title, preview.url):
+                self._notify("🖼 Image illisible : ouvre le guide pour la voir.")
+
+        def failed(exc: Exception) -> None:
+            log.warning("Guide : image impossible (%r)", exc)
+
+        self._background(lambda: fetch_preview(source.url), done, failed)
+        return True
+
     def hotkey_analyze(self) -> None:
         """Appui sur le raccourci en jeu : capture la fenêtre active et lance l'analyse."""
         if self.busy:
@@ -3366,7 +3455,12 @@ class MainWindow(QMainWindow):
         if outcome.transcript is not None:
             self.question.setText(f"🎙 {outcome.transcript}")
         self._show_sources(result)
+        self._remember_guide(result, outcome.profile)
         self._bubble_finish(result.text, self._say(result.text))
+        if result.extra.get("open_page"):
+            self.open_guide(auto=True)  # l'IA juge la page utile : ouverte directement
+        if result.extra.get("show_image"):
+            self.show_guide_image(auto=True)
         fallback = result.extra.get("fallback_from")
         if fallback:
             self._set_status(

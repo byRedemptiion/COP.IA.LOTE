@@ -200,6 +200,7 @@ class AnalysisService:
                     profile.prompt_context(web_search)
                     + game_note
                     + _pages_note(found_pages)
+                    + (_guide_rules() if web_search else "")
                     + vision_note(frame)
                     + past_note
                     + ("\n" + UNDERSTOOD_QUESTION if dictated else ""),
@@ -269,6 +270,13 @@ class AnalysisService:
                     question = transcript or question  # sinon la version comprise sur le PC
                 else:
                     question = transcript or "(question orale inaudible)"
+            from alicia.core.guide import take_markers
+
+            result.text, wants_page, wants_image = take_markers(result.text)
+            if wants_page:
+                result.extra["open_page"] = "1"
+            if wants_image:
+                result.extra["show_image"] = "1"
             if request.history and repeats(result.text, request.history):
                 # Petit modèle qui recopie sa réponse précédente au lieu de répondre :
                 # on relance une fois sans l'historique, en lui interdisant de la répéter.
@@ -488,6 +496,12 @@ def _app_note(window: WindowInfo) -> str:
         "Ce jeu n'a pas de profil dans COP'IA'LOTE : déduis-le du titre et de l'image, "
         "et dis-le si tu n'es pas sûr."
     )
+
+
+def _guide_rules() -> str:
+    from alicia.core.guide import GUIDE_RULES
+
+    return GUIDE_RULES
 
 
 def _pages_note(pages: list) -> str:  # type: ignore[type-arg]
