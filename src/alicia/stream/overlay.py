@@ -6,6 +6,8 @@ Un petit serveur web local (127.0.0.1 seulement, rien n'est ouvert sur Internet)
   réflexion, parole), niveau de la voix, sous-titres, gestes ;
 - ``/portrait`` : le portrait du personnage choisi ;
 - ``/anim/<fichier>`` : les animations de Nova, déposées dans %LOCALAPPDATA%\\Alicia\\overlay.
+- ``/audio/<n>.wav`` : sa voix, phrase par phrase, jouée par la page (option « sa voix dans
+  OBS ») : elle a ainsi sa propre piste dans le mélangeur audio d'OBS.
 
 Options de la page (dans l'adresse) : ``?size=260`` (taille en px), ``&bulle=0`` (sans
 sous-titres), ``&roam=1`` (elle se promène dans toute la source : la régler en plein écran).
@@ -46,6 +48,8 @@ class OverlayServer:
         self._last: dict[str, str] = {}  # dernier événement de chaque type, pour les nouveaux
         self._server: ThreadingHTTPServer | None = None
         self._thread: threading.Thread | None = None
+        self._clips: dict[int, bytes] = {}  # dernières phrases de sa voix (WAV)
+        self._clip_id = 0
 
     # --- démarrage ------------------------------------------------------------------------------
 
@@ -102,7 +106,7 @@ class OverlayServer:
         with self._lock:
             if kind == "text":
                 self._last.pop("hide", None)  # nouveau sous-titre : il est de nouveau visible
-            if kind not in ("level", "gesture"):  # rejoués pour une page qui se connecte
+            if kind not in ("level", "gesture", "audio"):  # rejoués pour une page qui arrive
                 self._last.pop(kind, None)
                 self._last[kind] = message
             for client in self._clients:
@@ -110,6 +114,30 @@ class OverlayServer:
                     client.put_nowait(message)
                 except queue.Full:
                     pass  # page bloquée : on saute ce message plutôt que de ralentir ALICIA
+
+    def publish_audio(self, samples, rate: int = 24000) -> int:  # type: ignore[no-untyped-def]
+        """Une phrase de sa voix (int16 mono) → la page OBS la joue (sa propre piste audio)."""
+        import io
+        import wave
+
+        buffer = io.BytesIO()
+        with wave.open(buffer, "wb") as wav:
+            wav.setnchannels(1)
+            wav.setsampwidth(2)
+            wav.setframerate(rate)
+            wav.writeframes(samples.astype("<i2").tobytes())
+        with self._lock:
+            self._clip_id += 1
+            clip = self._clip_id
+            self._clips[clip] = buffer.getvalue()
+            for old in [k for k in self._clips if k <= clip - 20]:
+                del self._clips[old]
+        self.publish("audio", id=clip)
+        return clip
+
+    def clip(self, clip: int) -> bytes | None:
+        with self._lock:
+            return self._clips.get(clip)
 
     def _subscribe(self) -> queue.Queue[str | None]:
         client: queue.Queue[str | None] = queue.Queue(maxsize=200)
@@ -153,6 +181,12 @@ def _make_handler(server: OverlayServer) -> type[BaseHTTPRequestHandler]:
                     self._send(data, "image/png", 200 if data else 404)
                 elif path.startswith("/anim/"):
                     self._anim(unquote(path.removeprefix("/anim/")))
+                elif path.startswith("/audio/") and path.endswith(".wav"):
+                    try:
+                        data = server.clip(int(path.removeprefix("/audio/").removesuffix(".wav")))
+                    except ValueError:
+                        data = None
+                    self._send(data or b"", "audio/wav", 200 if data else 404)
                 elif path == "/events":
                     self._events()
                 else:

@@ -468,9 +468,9 @@ class SoundDevicePlayer:
         self.device = device
         self.level = 0.0  # niveau de la voix en cours (0-1), lu par l'interface
 
-    def open(self):  # type: ignore[no-untyped-def]
+    def open(self, device: str | None = None):  # type: ignore[no-untyped-def]
         sd = sounddevice()
-        index = find_device(self.device, output=True)
+        index = find_device(self.device if device is None else device, output=True)
         stream = sd.OutputStream(
             samplerate=TTS_SAMPLE_RATE, channels=1, dtype="int16", device=index
         )
@@ -522,6 +522,8 @@ class Speaker:
         self._stop = threading.Event()
         self._thread: threading.Thread | None = None
         self._queue: queue.Queue[str | None] | None = None
+        # Copie de chaque phrase jouée (overlay OBS : sa voix sur sa propre source audio)
+        self.on_audio: Callable[[np.ndarray], None] | None = None
         self.on_state: Callable[[str, str | None], None] = lambda _state, _msg: None
 
     @property
@@ -532,7 +534,9 @@ class Speaker:
     def speaking(self) -> bool:
         return self._thread is not None and self._thread.is_alive()
 
-    def speak(self, text: str, synthesizer: Synthesizer | None = None) -> bool:
+    def speak(
+        self, text: str, synthesizer: Synthesizer | None = None, device: str | None = None
+    ) -> bool:
         """Lit ``text`` (avec une autre voix si ``synthesizer`` est donné : écoute d'essai)."""
         from alicia.core.persona import pronounce
 
@@ -544,7 +548,7 @@ class Speaker:
         for sentence in sentences:
             source.put(sentence)
         source.put(None)
-        self._start(source, synthesizer)
+        self._start(source, synthesizer, device)
         return True
 
     # --- lecture au fil de l'eau : la voix part dès la 1re phrase écrite par l'IA -----------
@@ -565,11 +569,16 @@ class Speaker:
             self._queue.put(None)
             self._queue = None
 
-    def _start(self, source: queue.Queue[str | None], synthesizer: Synthesizer | None) -> None:
+    def _start(
+        self,
+        source: queue.Queue[str | None],
+        synthesizer: Synthesizer | None,
+        device: str | None = None,
+    ) -> None:
         self._stop = threading.Event()
         self._thread = threading.Thread(
             target=self._run,
-            args=(source, self._stop, synthesizer or self.synthesizer),
+            args=(source, self._stop, synthesizer or self.synthesizer, device),
             name="alicia-voice",
             daemon=True,
         )
@@ -601,6 +610,7 @@ class Speaker:
         source: queue.Queue[str | None],
         stop: threading.Event,
         synthesizer: Synthesizer | None = None,
+        device: str | None = None,  # autre sortie (Mode Stream : seulement dans ton casque)
     ) -> None:
         synthesize = synthesizer or self.synthesizer
         started = time.perf_counter()
@@ -637,13 +647,19 @@ class Speaker:
                 if not finished and len(futures) < 2:
                     pull(0)
                 if stream is None:
-                    stream = self.player.open()
+                    stream = self.player.open() if device is None else self.player.open(device)
                     log.info(
                         "Voix : 1re phrase prête en %d ms",
                         (time.perf_counter() - started) * 1000,
                     )
                     self.on_state("speaking", None)
-                self.player.play(stream, apply_volume(samples, self.settings.volume), stop)
+                samples = apply_volume(samples, self.settings.volume)
+                if self.on_audio is not None and device is None:  # pas en « casque seul »
+                    try:
+                        self.on_audio(samples)
+                    except Exception as exc:  # noqa: BLE001 - l'overlay ne coupe jamais la voix
+                        log.debug("Copie de la voix pour OBS impossible : %r", exc)
+                self.player.play(stream, samples, stop)
         except AudioError as exc:
             log.error("Voix : %s", exc.detail)
             error = exc.user_message

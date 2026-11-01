@@ -566,7 +566,14 @@ class SettingsPage(QWidget):
         grid.addWidget(self.twitch_state, 2, 1, 1, 2)
         self.overlay_box = QCheckBox("ALICIA sur le stream : page à ajouter dans OBS")
         self.overlay_box.toggled.connect(lambda on: self._emit("overlay", on))
-        grid.addWidget(self.overlay_box, 3, 0, 1, 3)
+        grid.addWidget(self.overlay_box, 3, 0, 1, 2)
+        self.overlay_voice_box = QCheckBox("🔊 Sa voix dans OBS")
+        self.overlay_voice_box.setToolTip(
+            "La page OBS joue aussi sa voix : elle a sa propre piste dans le mélangeur d'OBS "
+            "(coche « Contrôler l'audio via OBS » dans les propriétés de la source)."
+        )
+        self.overlay_voice_box.toggled.connect(lambda on: self._emit("overlay_voice", on))
+        grid.addWidget(self.overlay_voice_box, 3, 2)
         self.overlay_url = QLineEdit()
         self.overlay_url.setReadOnly(True)
         copy = QPushButton("Copier l'adresse")
@@ -582,7 +589,9 @@ class SettingsPage(QWidget):
         grid.addWidget(anims, 5, 2)
         obs_help = _muted(
             "Dans OBS : Sources → + → <b>Navigateur</b> → colle l'adresse, largeur et hauteur "
-            "600 × 600 (le fond est déjà transparent). Elle flotte, bouge toute seule, "
+            "600 × 600 (le fond est déjà transparent). Avec « Sa voix dans OBS », coche aussi "
+            "<b>Contrôler l'audio via OBS</b> dans la source : sa voix a alors sa propre piste "
+            "dans le mélangeur (volume, muet). Elle flotte, bouge toute seule, "
             "s'allume quand elle écoute, réfléchit ou parle, et ses réponses s'affichent en "
             "sous-titres.<br>Options à ajouter à l'adresse : <b>?size=200</b> (taille), "
             "<b>&amp;bulle=0</b> (sans sous-titres), <b>&amp;side=top</b> (sous-titres "
@@ -593,6 +602,7 @@ class SettingsPage(QWidget):
         obs_help.setTextFormat(Qt.TextFormat.RichText)
         grid.addWidget(obs_help, 6, 0, 1, 3)
         self._tab_layouts["stream"].addWidget(stream)
+        self._tab_layouts["stream"].addWidget(self._chat_panel())
 
         # --- Duo -----------------------------------------------------------------------------------
         duo, grid = _panel()
@@ -1642,11 +1652,117 @@ class SettingsPage(QWidget):
     def show_duo(self, text: str) -> None:
         self.duo_state.setText(text)
 
+    def _chat_panel(self) -> QWidget:
+        """Mode Stream : il lit le chat Twitch et répond à voix haute."""
+        from alicia.stream.chat import TRIGGERS
+
+        panel, grid = _panel()
+        grid.addWidget(_title("📺  MODE STREAM : RÉPONDRE AU CHAT"), 0, 0, 1, 3)
+        self.chat_box = QCheckBox("Lire le chat Twitch et répondre à voix haute")
+        self.chat_box.toggled.connect(lambda on: self._emit("chat_mode", on))
+        grid.addWidget(self.chat_box, 1, 0, 1, 2)
+        self.chat_state = _muted("Chat : coupé")
+        grid.addWidget(self.chat_state, 1, 2)
+        self.chat_trigger = QComboBox()
+        for key, label in TRIGGERS.items():
+            self.chat_trigger.addItem(label, key)
+        self.chat_trigger.currentIndexChanged.connect(
+            lambda _i: self._emit("chat_trigger", self.chat_trigger.currentData())
+        )
+        grid.addWidget(QLabel("Il répond à"), 2, 0)
+        grid.addWidget(self.chat_trigger, 2, 1, 1, 2)
+        self.chat_cooldown = QComboBox()
+        for seconds in (10, 20, 30, 60, 120):
+            self.chat_cooldown.addItem(
+                f"au plus une réponse toutes les {seconds} s", float(seconds)
+            )
+        self.chat_cooldown.currentIndexChanged.connect(
+            lambda _i: self._emit("chat_cooldown_s", self.chat_cooldown.currentData())
+        )
+        grid.addWidget(QLabel("Rythme"), 3, 0)
+        grid.addWidget(self.chat_cooldown, 3, 1, 1, 2)
+        self.chat_names = QCheckBox("Dire le pseudo du spectateur (s'il se prononce bien)")
+        self.chat_names.toggled.connect(lambda on: self._emit("chat_say_names", on))
+        grid.addWidget(self.chat_names, 4, 0, 1, 3)
+        self.chat_ignored = QLineEdit()
+        self.chat_ignored.setPlaceholderText("pseudos ignorés, séparés par des virgules")
+        self.chat_ignored.editingFinished.connect(
+            lambda: self._emit("chat_ignored", self.chat_ignored.text())
+        )
+        grid.addWidget(QLabel("Ignorer"), 5, 0)
+        grid.addWidget(self.chat_ignored, 5, 1, 1, 2)
+        self.chat_output = QComboBox()
+        self.chat_output.currentIndexChanged.connect(
+            lambda _i: self._emit("chat_output", self.chat_output.currentData() or "")
+        )
+        grid.addWidget(QLabel("Sa voix"), 7, 0)
+        grid.addWidget(self.chat_output, 7, 1, 1, 2)
+        grid.addWidget(
+            _muted(
+                "<b>Entendu sur le live ou pas</b> : OBS enregistre en général la sortie "
+                "Windows par défaut (« Audio du bureau »). Pour que les spectateurs "
+                "l'entendent, garde la même sortie que d'habitude. Pour que toi seul "
+                "l'entendes, choisis une sortie qu'OBS n'enregistre pas (ton casque, si OBS "
+                "capte les haut-parleurs). Autre solution dans OBS : une source « Capture audio "
+                "d'application » sur alicia-gui.exe (ou pythonw.exe), que tu coupes ou remets d'un clic."
+            ),
+            8,
+            0,
+            1,
+            3,
+        )
+        grid.addWidget(
+            _muted(
+                "Lecture seule : il n'écrit jamais dans le chat et n'a besoin d'aucun compte. "
+                "Il attend que personne ne parle, ignore les bots, les liens, les commandes et "
+                "les messages insultants ou qui cherchent à lui faire dire quelque chose. Les "
+                "messages du chat ne peuvent jamais déclencher d'action sur ton PC. "
+                "À la voix : « active le mode stream » / « coupe le mode stream »."
+            ),
+            6,
+            0,
+            1,
+            3,
+        )
+        return panel
+
     def load_stream(self, stream) -> None:  # type: ignore[no-untyped-def]
         self._loading = True
         try:
             self.twitch_input.setText(stream.twitch_channel)
             self.overlay_box.setChecked(stream.overlay)
+            self.overlay_voice_box.blockSignals(True)
+            self.overlay_voice_box.setChecked(stream.overlay_voice)
+            self.overlay_voice_box.blockSignals(False)
+            for widget in (self.chat_box, self.chat_trigger, self.chat_cooldown, self.chat_names):
+                widget.blockSignals(True)
+            self.chat_box.setChecked(stream.chat_mode)
+            self.chat_trigger.setCurrentIndex(
+                max(0, self.chat_trigger.findData(stream.chat_trigger))
+            )
+            index = self.chat_cooldown.findData(float(stream.chat_cooldown_s))
+            if index < 0:
+                self.chat_cooldown.addItem(
+                    f"toutes les {stream.chat_cooldown_s:g} s", stream.chat_cooldown_s
+                )
+                index = self.chat_cooldown.count() - 1
+            self.chat_cooldown.setCurrentIndex(index)
+            self.chat_names.setChecked(stream.chat_say_names)
+            try:
+                outputs = self._output_devices()
+            except Exception:  # noqa: BLE001 - pas de carte son : sortie par défaut seulement
+                outputs = []
+            self.chat_output.blockSignals(True)
+            self._fill_devices(
+                self.chat_output,
+                outputs,
+                stream.chat_output,
+                "Comme d'habitude (la même sortie que sa voix)",
+            )
+            self.chat_output.blockSignals(False)
+            self.chat_ignored.setText(stream.chat_ignored)
+            for widget in (self.chat_box, self.chat_trigger, self.chat_cooldown, self.chat_names):
+                widget.blockSignals(False)
         finally:
             self._loading = False
         self.show_channel(stream.twitch_channel, valid=True)

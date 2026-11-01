@@ -228,6 +228,13 @@ class StreamSettings:
     twitch_channel: str = ""  # ex. « nova_jagger » : bouton « Chat Twitch »
     overlay: bool = True  # page pour OBS (source Navigateur) sur http://127.0.0.1:<port>/overlay
     overlay_port: int = 8765
+    chat_mode: bool = False  # Mode Stream : il lit le chat Twitch et répond à voix haute
+    chat_trigger: str = "mention"  # mention | questions | tout
+    chat_cooldown_s: float = 20.0  # temps minimum entre deux réponses au chat
+    chat_say_names: bool = True  # dire le pseudo du spectateur (s'il se prononce bien)
+    chat_ignored: str = ""  # pseudos ignorés, séparés par des virgules
+    chat_output: str = ""  # sortie de ses réponses au chat ("" = la même que sa voix)
+    overlay_voice: bool = False  # sa voix jouée aussi par la page OBS (sa propre piste audio)
 
 
 @dataclass(frozen=True)
@@ -497,6 +504,19 @@ def load_settings(
                 65000,
                 max(1024, int(_section(data, "stream").get("overlay_port", 8765) or 8765)),
             ),
+            chat_mode=bool(_section(data, "stream").get("chat_mode", False)),
+            chat_trigger=str(_section(data, "stream").get("chat_trigger", "mention"))
+            if str(_section(data, "stream").get("chat_trigger", "mention"))
+            in ("mention", "questions", "tout")
+            else "mention",
+            chat_cooldown_s=max(
+                5.0,
+                min(600.0, float(_section(data, "stream").get("chat_cooldown_s", 20.0) or 20.0)),
+            ),
+            chat_say_names=bool(_section(data, "stream").get("chat_say_names", True)),
+            chat_ignored=str(_section(data, "stream").get("chat_ignored", ""))[:500],
+            chat_output=str(_section(data, "stream").get("chat_output", "") or ""),
+            overlay_voice=bool(_section(data, "stream").get("overlay_voice", False)),
         ),
         duo=DuoSettings(
             enabled=bool(_section(data, "duo").get("enabled", False)),

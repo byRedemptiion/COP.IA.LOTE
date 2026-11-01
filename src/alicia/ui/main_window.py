@@ -213,6 +213,11 @@ class MainWindow(QMainWindow):
         self.tray = self._build_tray(icon)
         self._attach_logs()
         self._setup_copilot()
+        from alicia.ui.stream_mode import StreamMode
+
+        self.stream_mode = StreamMode(self)
+        if self.services.settings.stream.chat_mode:
+            self.set_stream_mode(True, save=False)
         from alicia.core.duo_presence import PING_S
 
         self._duo_ping_timer = QTimer(self)
@@ -291,6 +296,15 @@ class MainWindow(QMainWindow):
         )
         self.copilot_button.toggled.connect(lambda on: self.set_copilot(on))
         right_buttons.addWidget(self.copilot_button)
+        self.stream_button = QPushButton("📺  Stream")
+        self.stream_button.setObjectName("copilotToggle")
+        self.stream_button.setCheckable(True)
+        self.stream_button.setToolTip(
+            "Mode Stream : il lit le chat Twitch et répond à voix haute aux spectateurs "
+            "(réglages dans Stream)"
+        )
+        self.stream_button.toggled.connect(lambda on: self.set_stream_mode(on))
+        right_buttons.addWidget(self.stream_button)
         right_buttons.addWidget(self.orb_button)
         right_buttons.addWidget(self.nav_keys)  # roue des réglages
         from alicia.ui.frameless import window_buttons
@@ -997,6 +1011,27 @@ class MainWindow(QMainWindow):
             self.set_overlay(bool(value))
         elif key == "twitch_channel":
             self.set_twitch_channel(str(value or ""))
+            if self.stream_mode.enabled:
+                self.set_stream_mode(True, save=False)  # relit le chat de la nouvelle chaîne
+        elif key == "chat_mode":
+            self.set_stream_mode(bool(value))
+        elif key in (
+            "chat_trigger",
+            "chat_cooldown_s",
+            "chat_say_names",
+            "chat_ignored",
+            "chat_output",
+            "overlay_voice",
+        ):
+            from dataclasses import replace
+
+            kind = {"chat_cooldown_s": float, "chat_say_names": bool, "overlay_voice": bool}.get(
+                key, str
+            )
+            stream = replace(self.services.settings.stream, **{key: kind(value)})
+            self.services.settings = replace(self.services.settings, stream=stream)
+            self._save("stream", key, kind(value))
+            self.stream_mode.configure()
         elif key == "twitch_open":
             self.open_twitch_chat()
         elif key == "overlay_copy":
@@ -1488,6 +1523,12 @@ class MainWindow(QMainWindow):
         else:
             self.settings_page.show_overlay("")
 
+    def _overlay_audio(self, samples) -> None:  # type: ignore[no-untyped-def]
+        """Fil de la voix : copie de la phrase pour la page OBS (si l'option est cochée)."""
+        overlay = self.overlay
+        if overlay is not None and overlay.clients and self.services.settings.stream.overlay_voice:
+            overlay.publish_audio(samples)
+
     def _pump_overlay(self) -> None:
         """État et niveau de voix du rond → overlay (≈ 14 fois par seconde, si une page écoute)."""
         overlay = self.overlay
@@ -1646,6 +1687,15 @@ class MainWindow(QMainWindow):
                 "close": "C'est fermé.",
             }
             return ActionReply(texts[guide], f"guide_{guide}", done=True)
+        from alicia.stream.chat import parse_stream_command
+
+        live = parse_stream_command(text)  # « active / coupe le mode stream »
+        if live is not None:
+            return ActionReply(
+                "Mode Stream activé : je lis le chat." if live else "Mode Stream coupé.",
+                "stream_on" if live else "stream_off",
+                done=True,
+            )
         wanted = parse_copilot_command(text)  # « active / désactive le copilote »
         if wanted is not None:
             return ActionReply(
@@ -2055,6 +2105,7 @@ class MainWindow(QMainWindow):
                 main.settings, tts_engine=engine, tts_voice="fr-FR-DeniseNeural", tts_rate="+0%"
             )
             self._peer_speaker = Speaker(voice)
+            self._peer_speaker.on_audio = self._overlay_audio  # sa voix aussi dans OBS
             self._peer_engine = engine
         return self._peer_speaker
 
@@ -3005,11 +3056,14 @@ class MainWindow(QMainWindow):
         if self.services.actions is not None:
             self.services.actions.on_reminder = self.voice_bridge.reminder.emit
         if self.services.speaker is not None:
+            self.services.speaker.on_audio = self._overlay_audio
             self.services.speaker.on_state = lambda state, msg: self.voice_bridge.state.emit(
                 state, msg
             )
 
     def closeEvent(self, event) -> None:  # type: ignore[no-untyped-def]  # noqa: N802
+        if getattr(self, "stream_mode", None) is not None:
+            self.stream_mode.stop()
         if self.duo_link is not None:
             self._duo_bye(wait=1.5)
             self.duo_link.stop()
@@ -3393,6 +3447,10 @@ class MainWindow(QMainWindow):
             return
         if reply.intent in ("copilot_on", "copilot_off"):
             self.set_copilot(reply.intent == "copilot_on")
+        if reply.intent in ("stream_on", "stream_off"):
+            self.set_stream_mode(reply.intent == "stream_on", save=True)
+            if reply.intent == "stream_on" and not self.stream_mode.enabled:
+                reply.text = "Il me faut d'abord ta chaîne Twitch, dans Réglages, onglet Stream."
         if reply.intent == "guide_open" and not self.open_guide():
             reply.text = (
                 "Je n'ai pas encore de page à ouvrir : pose ta question avec la recherche web, "
@@ -3606,6 +3664,38 @@ class MainWindow(QMainWindow):
             self._core_settle()  # en pause : il ne regarde plus
         if fails == 1 or kind is not ProviderErrorKind.AUTH or fails % 5 == 0:
             self._notify(text)
+
+    def set_stream_mode(self, on: bool, save: bool = True) -> None:
+        """Mode Stream : il lit le chat Twitch et répond à voix haute aux spectateurs."""
+        from dataclasses import replace
+
+        problem = self.stream_mode.start() if on else None
+        if not on:
+            self.stream_mode.stop()
+        enabled = bool(on) and problem is None
+        stream = replace(self.services.settings.stream, chat_mode=enabled)
+        self.services.settings = replace(self.services.settings, stream=stream)
+        if save:
+            self._save("stream", "chat_mode", enabled)
+        self.stream_button.blockSignals(True)
+        self.stream_button.setChecked(enabled)
+        self.stream_button.setText("📺  Stream ✓" if enabled else "📺  Stream")
+        self.stream_button.blockSignals(False)
+        box = getattr(self.settings_page, "chat_box", None)
+        if box is not None:
+            box.blockSignals(True)
+            box.setChecked(enabled)
+            box.blockSignals(False)
+        if problem:
+            self._notify(f"⚠ {problem}")
+            self.show_page(2, "stream")
+        elif save:
+            channel = self.services.settings.stream.twitch_channel
+            self._notify(
+                f"📺 Mode Stream activé : je lis le chat de {channel}."
+                if enabled
+                else "Mode Stream coupé : je ne lis plus le chat."
+            )
 
     def _copilot_speak(self, message: str, importance: int) -> None:
         if self._copilot_skip() not in (None, "coup d'œil précédent pas fini"):

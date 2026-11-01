@@ -271,6 +271,24 @@ function wander() {
 }
 if (roam) setTimeout(wander, 3000);
 
+// --- sa voix dans OBS (option) : chaque phrase est jouée par cette page, qui a sa propre
+// piste dans le mélangeur d'OBS (cocher « Contrôler l'audio via OBS » dans la source).
+const voiceQueue = [];
+let voicePlaying = false;
+function queueVoice(id) {
+  voiceQueue.push(id);
+  if (voiceQueue.length > 6) voiceQueue.shift();  // en retard : on saute plutôt que d'accumuler
+  if (!voicePlaying) playVoice();
+}
+function playVoice() {
+  const id = voiceQueue.shift();
+  if (id === undefined) { voicePlaying = false; return; }
+  voicePlaying = true;
+  const audio = new Audio("/audio/" + id + ".wav");
+  audio.onended = audio.onerror = playVoice;
+  audio.play().catch(playVoice);
+}
+
 // --- connexion à ALICIA ---------------------------------------------------------------------
 function connect() {
   const events = new EventSource("/events");
@@ -286,6 +304,7 @@ function connect() {
     else if (msg.type === "hide") hideText(msg.after_ms);
     else if (msg.type === "gesture") gesture(msg.name);
     else if (msg.type === "reload") location.reload();
+    else if (msg.type === "audio") queueVoice(msg.id);
   };
 }
 setState("idle");

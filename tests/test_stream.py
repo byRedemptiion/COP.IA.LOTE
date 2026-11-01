@@ -145,3 +145,50 @@ def test_twitch_channel_setting_is_saved(qt_app, tmp_path, monkeypatch):
     window.orb.twitch_requested.emit()
     assert opened == ["https://www.twitch.tv/popout/nova_jagger/chat?popout="]
     window.close()
+
+
+def test_overlay_serves_the_voice_for_obs():
+    import numpy as np
+
+    server = OverlayServer(_free_port())
+    assert server.start()
+    try:
+        clip = server.publish_audio(np.zeros(2400, np.int16))
+        base = server.url.removesuffix("/overlay")
+        data = urllib.request.urlopen(f"{base}/audio/{clip}.wav", timeout=3).read()
+        assert data[:4] == b"RIFF" and len(data) == 44 + 4800
+        with pytest.raises(urllib.error.HTTPError):
+            urllib.request.urlopen(f"{base}/audio/999.wav", timeout=3)
+        page = urllib.request.urlopen(server.url, timeout=3).read().decode()
+        assert "queueVoice" in page
+    finally:
+        server.stop()
+
+
+def test_speaker_copies_each_sentence_for_obs_except_headset_only():
+    import time
+
+    import numpy as np
+
+    from alicia.core.audio.speaker import Speaker
+    from alicia.core.config import VoiceSettings
+    from tests.test_voice import FakePlayer
+
+    copies = []
+    speaker = Speaker(
+        VoiceSettings(), synthesizer=lambda t: np.zeros(50, np.int16), player=FakePlayer()
+    )
+    speaker.on_audio = lambda samples: copies.append(len(samples))
+    speaker.speak("Première phrase assez longue. Deuxième phrase assez longue.")
+    speaker._thread.join(3)
+    assert copies == [50, 50]
+
+    class DevicePlayer(FakePlayer):
+        def open(self, device=None):
+            return object()
+
+    speaker.player = DevicePlayer()
+    speaker.speak("Une phrase pour le casque seulement.", device="Casque")
+    speaker._thread.join(3)
+    time.sleep(0.05)
+    assert copies == [50, 50]  # « casque seul » : pas envoyé à OBS
