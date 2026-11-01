@@ -3787,6 +3787,9 @@ class MainWindow(QMainWindow):
             if state == "error" and message:
                 self._set_status("⚠ " + message)
                 self._flash_error()
+                gallery = getattr(self.settings_page, "gallery_state", None)
+                if gallery is not None:
+                    gallery.setText("⚠ " + message)  # visible sous le catalogue des voix
             else:
                 self._core_settle()
             if self._expect_reply:
