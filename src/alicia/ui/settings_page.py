@@ -897,7 +897,7 @@ class SettingsPage(QWidget):
         self.channel_box = QComboBox()
         self.channel_box.addItem("Stable : la version normale", "alice-v0.3")
         self.channel_box.addItem(
-            "Test : les nouveautés en essai (peut avoir des bugs)", "alice-test"
+            "Test : refonte visuelle en essai (peut avoir des bugs)", "alice-test"
         )
         self.channel_box.currentIndexChanged.connect(
             lambda _i: self._emit("update_channel", self.channel_box.currentData())
