@@ -195,3 +195,32 @@ def test_player_can_say_their_name():
     assert parse_name_command("Alicia, appelle-moi Nova.") == "Nova"
     assert parse_name_command("mon prénom c'est Jérôme") == "Jérôme"
     assert parse_name_command("comment tu t'appelles ?") is None
+
+
+def test_voice_can_use_its_own_key(qt_app, tmp_path, monkeypatch, caplog):
+    import logging
+
+    from alicia.app import build_services
+    from alicia.core import user_config
+    from alicia.core.config import load_settings
+    from alicia.ui.main_window import MainWindow
+
+    monkeypatch.chdir(tmp_path)
+    written = {}
+    monkeypatch.setattr(user_config, "set_env", lambda k, v, path=None: written.update({k: v}))
+    settings = load_settings(environ={"ALICE_AI_PROVIDER": "fake", "OPENAI_API_KEY": "sk-ai"})
+    window = MainWindow(build_services(settings, demo=True))
+    try:
+        window.show_page(2)
+        with caplog.at_level(logging.DEBUG):
+            window.settings_page.voice_key.emit("openai", "sk-voice-secret")
+        assert written == {"VOICE_OPENAI_API_KEY": "sk-voice-secret"}
+        assert window.services.settings.voice.openai_key.get() == "sk-voice-secret"
+        assert "sk-voice-secret" not in caplog.text  # jamais journalisée
+        assert "dédiée" in window.settings_page.voice_key_state.text()
+        window.settings_page.voice_key.emit("openai", "")
+        assert window.services.settings.voice.openai_key.get() == "sk-ai"
+    finally:
+        window.close()
+    env = load_settings(environ={"VOICE_GEMINI_API_KEY": "g-voice", "GEMINI_API_KEY": "g-ai"})
+    assert env.voice.gemini_key.get() == "g-voice" and env.voice.own_keys == ("gemini",)

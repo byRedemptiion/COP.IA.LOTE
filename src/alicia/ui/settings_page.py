@@ -183,6 +183,7 @@ class SettingsPage(QWidget):
     test_mic = Signal()
     test_voice = Signal()
     open_ai = Signal()
+    voice_key = Signal(str, str)  # (fournisseur, clé) : jamais par setting_changed (journalisé)
 
     def __init__(
         self,
@@ -545,6 +546,31 @@ class SettingsPage(QWidget):
             3,
         )
         self.output_box = QComboBox()
+        self.voice_key_provider = QComboBox()
+        self.voice_key_provider.addItem("Gemini", "gemini")
+        self.voice_key_provider.addItem("ChatGPT (OpenAI)", "openai")
+        self.voice_key_input = QLineEdit()
+        self.voice_key_input.setEchoMode(QLineEdit.EchoMode.Password)
+        self.voice_key_input.setPlaceholderText("colle ici une clé utilisée seulement pour la voix")
+        save_key = QPushButton("Enregistrer")
+        save_key.clicked.connect(self._send_voice_key)
+        remove_key = QPushButton("Retirer")
+        remove_key.setObjectName("ghost")
+        remove_key.clicked.connect(
+            lambda: self.voice_key.emit(self.voice_key_provider.currentData(), "")
+        )
+        key_row = QHBoxLayout()
+        key_row.addWidget(self.voice_key_provider)
+        key_row.addWidget(self.voice_key_input, 1)
+        key_row.addWidget(save_key)
+        key_row.addWidget(remove_key)
+        grid.addWidget(QLabel("Clé voix"), 9, 0)
+        grid.addLayout(key_row, 9, 1, 1, 2)
+        self.voice_key_state = _muted(
+            "Facultatif : une clé à part pour la voix (ex. tu réfléchis avec ChatGPT et tu "
+            "parles avec une voix Gemini). Sans elle, la voix utilise la clé de ton IA."
+        )
+        grid.addWidget(self.voice_key_state, 10, 1, 1, 2)
         grid.addWidget(QLabel("Sortie"), 5, 0)
         grid.addWidget(self.output_box, 5, 1, 1, 2)
         self.voice_test = QPushButton("Tester la voix")
@@ -1143,6 +1169,26 @@ class SettingsPage(QWidget):
 
     # --- valeurs --------------------------------------------------------------------------------
 
+    def _send_voice_key(self) -> None:
+        key = self.voice_key_input.text().strip()
+        if key:
+            self.voice_key.emit(self.voice_key_provider.currentData(), key)
+        self.voice_key_input.clear()
+
+    def show_voice_keys(self, own: tuple[str, ...]) -> None:
+        names = {"gemini": "Gemini", "openai": "ChatGPT"}
+        if own:
+            self.voice_key_state.setText(
+                "✓ Clé voix dédiée : "
+                + ", ".join(names[p] for p in own if p in names)
+                + " (la voix l'utilise à la place de celle de ton IA)."
+            )
+        else:
+            self.voice_key_state.setText(
+                "Facultatif : une clé à part pour la voix (ex. tu réfléchis avec ChatGPT et tu "
+                "parles avec une voix Gemini). Sans elle, la voix utilise la clé de ton IA."
+            )
+
     def _emit(self, key: str, value: object) -> None:
         if not self._loading:
             self.setting_changed.emit(key, value)
@@ -1401,6 +1447,7 @@ class SettingsPage(QWidget):
             )
             self.effect_box.setCurrentIndex(max(0, self.effect_box.findData(voice.voice_effect)))
             self.voice_style.setText(voice.voice_style)
+            self.show_voice_keys(voice.own_keys)
             self.volume.setValue(voice.volume)
             self.volume_label.setText(f"{voice.volume} %")
             chosen = {

@@ -587,6 +587,7 @@ class MainWindow(QMainWindow):
         self.settings_page.test_mic.connect(self.test_microphone)
         self.settings_page.test_voice.connect(self.test_voice)
         self.settings_page.open_ai.connect(self.open_setup)
+        self.settings_page.voice_key.connect(self.save_voice_key)
         from alicia.core import people
         from alicia.ui.people_page import PeoplePage
 
@@ -1278,6 +1279,49 @@ class MainWindow(QMainWindow):
             )
             return
         self.stop_voice_button.setEnabled(True)
+
+    def save_voice_key(self, provider: str, key: str) -> None:
+        """Clé dédiée à la voix (Gemini ou OpenAI), rangée dans le .env ; jamais journalisée."""
+        from alicia.core.config import Secret
+        from alicia.core.user_config import set_env
+
+        if provider not in ("gemini", "openai") or any(c in key for c in "\r\n "):
+            self._notify("⚠ Clé invalide.")
+            return
+        env_name = "VOICE_GEMINI_API_KEY" if provider == "gemini" else "VOICE_OPENAI_API_KEY"
+        try:
+            set_env(env_name, key)
+        except (OSError, ValueError) as exc:
+            log.error("Clé voix non enregistrée : %r", exc)
+            self._notify("⚠ Clé voix non enregistrée.")
+            return
+        voice = self.services.settings.voice
+        ai_key = (
+            self.services.settings.ai.gemini.api_key
+            if provider == "gemini"
+            else self.services.settings.ai.openai.api_key
+        )
+        secret = Secret(key) if key else ai_key  # retirée : retour à la clé de l'IA
+        own = tuple(p for p in voice.own_keys if p != provider) + ((provider,) if key else ())
+        field = "gemini_key" if provider == "gemini" else "openai_key"
+        from dataclasses import replace
+
+        voice = replace(voice, own_keys=own, **{field: secret})
+        self.services.settings = replace(self.services.settings, voice=voice)
+        speaker = self.services.speaker
+        if speaker is not None:
+            from alicia.core.audio.speaker import make_synthesizer
+
+            speaker.settings = voice
+            speaker.synthesizer = make_synthesizer(voice)
+        self.settings_page.show_voice_keys(own)
+        name = "Gemini" if provider == "gemini" else "ChatGPT"
+        log.info("Clé voix %s %s (valeur masquée)", name, "enregistrée" if key else "retirée")
+        self._notify(
+            f"✓ Clé voix {name} enregistrée : écoute une voix pour tester."
+            if key
+            else f"Clé voix {name} retirée : la voix reprend la clé de ton IA."
+        )
 
     def design_voice(self, name: str, description: str) -> None:
         """Crée une voix sur mesure chez Gemini, l'enregistre et fait écouter l'extrait."""

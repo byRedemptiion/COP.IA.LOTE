@@ -188,6 +188,7 @@ class VoiceSettings:
     volume: int = 100  # volume de la voix du robot, en % (0-200)
     voice_effect: str = ""  # "" | enfant | robot | gros_robot (sur Edge, Gemini, OpenAI, Kokoro)
     voice_style: str = ""  # consigne de jeu libre pour ChatGPT et Gemini (« petite robote… »)
+    own_keys: tuple[str, ...] = ()  # fournisseurs avec une clé dédiée à la voix (gemini, openai)
     gemini_tts_model: str = "gemini-3.1-flash-tts-preview"
     gemini_key: Secret = field(default_factory=lambda: Secret(None))  # même clé que l'IA Gemini
 
@@ -572,7 +573,8 @@ def load_settings(
             wake_sensitivity=max(1, min(5, int(voice.get("wake_sensitivity", 3)))),
             openai_voice=str(voice.get("openai_voice", "coral")).strip() or "coral",
             openai_tts_model=str(voice.get("openai_tts_model", "gpt-4o-mini-tts")).strip(),
-            openai_key=Secret(env.get("OPENAI_API_KEY")),
+            # Clé dédiée à la voix (facultative), sinon la même que l'IA
+            openai_key=Secret(env.get("VOICE_OPENAI_API_KEY") or env.get("OPENAI_API_KEY")),
             openai_base_url=str(openai.get("base_url", "https://api.openai.com/v1")).rstrip("/"),
             gemini_voice=str(voice.get("gemini_voice", "Leda")).strip() or "Leda",
             volume=max(0, min(200, int(voice.get("volume", 100) or 0))),
@@ -586,7 +588,16 @@ def load_settings(
             gemini_tts_model=str(
                 voice.get("gemini_tts_model", "gemini-3.1-flash-tts-preview")
             ).strip(),
-            gemini_key=Secret(env.get("GEMINI_API_KEY") or env.get("GOOGLE_API_KEY")),
+            gemini_key=Secret(
+                env.get("VOICE_GEMINI_API_KEY")
+                or env.get("GEMINI_API_KEY")
+                or env.get("GOOGLE_API_KEY")
+            ),
+            own_keys=tuple(
+                p
+                for p, k in (("gemini", "VOICE_GEMINI_API_KEY"), ("openai", "VOICE_OPENAI_API_KEY"))
+                if env.get(k)
+            ),
         ),
         sources=tuple(sources),
         captures_dir=cwd / "captures",
