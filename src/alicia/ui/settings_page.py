@@ -865,6 +865,7 @@ class SettingsPage(QWidget):
         grid.addWidget(QLabel("Au lancement"), 2, 0)
         grid.addWidget(self.mode_box, 2, 1, 1, 2)
         self._tab_layouts["general"].addWidget(general)
+        self._tab_layouts["general"].addWidget(self._orb_panel())
 
         # Visible en stream : rangé dans l'onglet Stream
         stream_visibility, grid = _panel()
@@ -1361,6 +1362,83 @@ class SettingsPage(QWidget):
         box.addWidget(widget)
         self.stack.addWidget(holder)
         self.tabs[key] = holder
+
+    def _orb_panel(self) -> QWidget:
+        """Général → Mode bulle : apparence, position, comportement, stream."""
+        panel, grid = _panel()
+        grid.addWidget(_title("MODE BULLE"), 0, 0, 1, 4)
+        self.orb_size = QSlider(Qt.Orientation.Horizontal)
+        self.orb_size.setRange(120, 480)
+        self.orb_size_label = _muted("")
+        self.orb_size.valueChanged.connect(lambda v: self.orb_size_label.setText(f"{v} px"))
+        self.orb_size.sliderReleased.connect(lambda: self._emit("orb_size", self.orb_size.value()))
+        self.orb_opacity = QSlider(Qt.Orientation.Horizontal)
+        self.orb_opacity.setRange(30, 100)
+        self.orb_opacity_label = _muted("")
+        self.orb_opacity.valueChanged.connect(lambda v: self.orb_opacity_label.setText(f"{v} %"))
+        self.orb_opacity.sliderReleased.connect(
+            lambda: self._emit("orb_pref", ("opacity", self.orb_opacity.value() / 100))
+        )
+        grid.addWidget(QLabel("Apparence"), 1, 0)
+        grid.addWidget(QLabel("Taille"), 1, 1)
+        grid.addWidget(self.orb_size, 1, 2)
+        grid.addWidget(self.orb_size_label, 1, 3)
+        grid.addWidget(QLabel("Opacité"), 2, 1)
+        grid.addWidget(self.orb_opacity, 2, 2)
+        grid.addWidget(self.orb_opacity_label, 2, 3)
+        self.orb_checks: dict[str, QCheckBox] = {}
+        rows = (
+            ("Apparence", "show_hud", "Anneaux animés (HUD) autour du robot"),
+            ("", "show_labels", "Nom et état sous le rond"),
+            ("", "anims", "Animations du robot"),
+            ("Position", "remember_position", "Se souvenir de la position"),
+            ("Comportement", "on_top", "Toujours au-dessus des autres fenêtres"),
+            ("", "locked", "Verrouiller la position (on la change en mode édition)"),
+            ("", "click_opens", "Clic gauche : ouvrir COP'IA'LOTE"),
+            ("", "dblclick_opens", "Double-clic : ouvrir COP'IA'LOTE"),
+        )
+        for row, (section, key, text) in enumerate(rows, start=3):
+            if section:
+                grid.addWidget(QLabel(section), row, 0)
+            box = QCheckBox(text)
+            box.toggled.connect(lambda on, k=key: self._emit("orb_pref", (k, on)))
+            self.orb_checks[key] = box
+            grid.addWidget(box, row, 1, 1, 3)
+            if key == "remember_position":
+                reset = QPushButton("Réinitialiser la position")
+                reset.clicked.connect(lambda: self._emit("orb_reset_position", True))
+                grid.addWidget(box, row, 1, 1, 2)
+                grid.addWidget(reset, row, 3)
+        self.orb_stream_box = QCheckBox("Visible dans OBS / Discord (aussi dans l'onglet Stream)")
+        self.orb_stream_box.toggled.connect(lambda on: self._emit("stream_visible", on))
+        grid.addWidget(QLabel("Stream"), 11, 0)
+        grid.addWidget(self.orb_stream_box, 11, 1, 1, 3)
+        grid.addWidget(
+            _muted(
+                "Pour placer le rond et la bulle, régler la bulle de texte (largeur, police, "
+                "durée) : clic droit sur le rond → ✏ Mode édition."
+            ),
+            12,
+            0,
+            1,
+            4,
+        )
+        grid.setColumnStretch(2, 1)
+        return panel
+
+    def load_orb(self, prefs: dict, size: int) -> None:  # type: ignore[type-arg]
+        self._loading = True
+        try:
+            self.orb_size.setValue(size)
+            self.orb_size_label.setText(f"{size} px")
+            opacity = int(round(float(prefs.get("opacity", 1.0)) * 100))
+            self.orb_opacity.setValue(opacity)
+            self.orb_opacity_label.setText(f"{opacity} %")
+            for key, box in self.orb_checks.items():
+                box.setChecked(bool(prefs.get(key)))
+            self.orb_stream_box.setChecked(self.stream_box.isChecked())
+        finally:
+            self._loading = False
 
     def _understanding_panel(self) -> QWidget:
         """Comment ta voix devient une question pour l'IA (Entendu → Compris)."""

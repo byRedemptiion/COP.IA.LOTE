@@ -57,6 +57,8 @@ class AliciaCore(QWidget):
         self._gesture = ""
         self._lips: list[QPixmap] = []
         self.anim_folder = None
+        self.anims_on = True  # animations du robot (préférence du mode bulle)
+        self.show_hud = True  # anneaux et barres autour du robot
         self.setMinimumSize(minimum, minimum)
         self.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Expanding)
         self.state = "idle"
@@ -98,6 +100,11 @@ class AliciaCore(QWidget):
             pixmap = QPixmap(str(custom))
             if not pixmap.isNull():
                 self.portrait = pixmap
+        if not self.anims_on:
+            self._stop_movie()
+            self._lips, self._playing = [], ""
+            self.update()
+            return
         self._lips = [QPixmap(str(p)) for p in anims.lip_frames(self.anim_folder)]
         self._lips = [p for p in self._lips if not p.isNull()]
         self._playing = ""
@@ -112,7 +119,7 @@ class AliciaCore(QWidget):
     def _play(self, name: str, once: bool = False) -> bool:
         from alicia.core import anims
 
-        if self.anim_folder is None:
+        if self.anim_folder is None or not self.anims_on:
             return False
         path = anims.find(name, self.anim_folder)
         if path is None:
@@ -239,62 +246,63 @@ class AliciaCore(QWidget):
             c.setAlpha(max(0, min(255, alpha)))
             return c
 
-        # Halo
-        glow = QRadialGradient(center, radius * 1.05)
-        glow.setColorAt(0.0, tint(int(70 + 90 * self._level)))
-        glow.setColorAt(0.45, tint(28))
-        glow.setColorAt(1.0, tint(0))
-        painter.setPen(Qt.PenStyle.NoPen)
-        painter.setBrush(glow)
-        painter.drawEllipse(center, radius, radius)
+        if self.show_hud:  # anneaux, arcs et barres (masquables en mode bulle)
+            # Halo
+            glow = QRadialGradient(center, radius * 1.05)
+            glow.setColorAt(0.0, tint(int(70 + 90 * self._level)))
+            glow.setColorAt(0.45, tint(28))
+            glow.setColorAt(1.0, tint(0))
+            painter.setPen(Qt.PenStyle.NoPen)
+            painter.setBrush(glow)
+            painter.drawEllipse(center, radius, radius)
 
-        # Anneau extérieur gradué (rotation lente)
-        painter.save()
-        painter.translate(center)
-        painter.rotate(self._angle * 0.4)
-        outer = radius * 0.94
-        for i in range(120):
-            major = i % 10 == 0
-            painter.setPen(QPen(tint(170 if major else 70), 2 if major else 1))
-            inner = outer - (radius * 0.05 if major else radius * 0.025)
-            a = math.radians(i * 3)
-            painter.drawLine(
-                QPointF(math.cos(a) * inner, math.sin(a) * inner),
-                QPointF(math.cos(a) * outer, math.sin(a) * outer),
-            )
-        painter.restore()
+            # Anneau extérieur gradué (rotation lente)
+            painter.save()
+            painter.translate(center)
+            painter.rotate(self._angle * 0.4)
+            outer = radius * 0.94
+            for i in range(120):
+                major = i % 10 == 0
+                painter.setPen(QPen(tint(170 if major else 70), 2 if major else 1))
+                inner = outer - (radius * 0.05 if major else radius * 0.025)
+                a = math.radians(i * 3)
+                painter.drawLine(
+                    QPointF(math.cos(a) * inner, math.sin(a) * inner),
+                    QPointF(math.cos(a) * outer, math.sin(a) * outer),
+                )
+            painter.restore()
 
-        # Arcs intermédiaires (sens inverse)
-        painter.save()
-        painter.translate(center)
-        painter.rotate(-self._angle)
-        mid = radius * 0.8
-        rect = QRectF(-mid, -mid, mid * 2, mid * 2)
-        for k, span in enumerate((70, 40, 100)):
-            painter.setPen(_round_pen(tint(200 - k * 40), 3 - k * 0.6))
-            painter.drawArc(rect, int((k * 120) * 16), int(span * 16))
-        inner_mid = radius * 0.72
-        rect2 = QRectF(-inner_mid, -inner_mid, inner_mid * 2, inner_mid * 2)
-        painter.rotate(self._angle * 2.2)
-        painter.setPen(QPen(tint(120), 1.5))
-        painter.drawArc(rect2, 0, 50 * 16)
-        painter.drawArc(rect2, 180 * 16, 50 * 16)
-        painter.restore()
+            # Arcs intermédiaires (sens inverse)
+            painter.save()
+            painter.translate(center)
+            painter.rotate(-self._angle)
+            mid = radius * 0.8
+            rect = QRectF(-mid, -mid, mid * 2, mid * 2)
+            for k, span in enumerate((70, 40, 100)):
+                painter.setPen(_round_pen(tint(200 - k * 40), 3 - k * 0.6))
+                painter.drawArc(rect, int((k * 120) * 16), int(span * 16))
+            inner_mid = radius * 0.72
+            rect2 = QRectF(-inner_mid, -inner_mid, inner_mid * 2, inner_mid * 2)
+            painter.rotate(self._angle * 2.2)
+            painter.setPen(QPen(tint(120), 1.5))
+            painter.drawArc(rect2, 0, 50 * 16)
+            painter.drawArc(rect2, 180 * 16, 50 * 16)
+            painter.restore()
 
-        # Barres réactives au son
-        painter.save()
-        painter.translate(center)
-        compact = not self.show_labels
-        base = radius * (0.66 if compact else 0.5)
-        for i, value in enumerate(self._bars):
-            a = math.radians(i * 360 / BARS - 90)
-            length = radius * ((0.02 + 0.12 * value) if compact else (0.03 + 0.17 * value))
-            painter.setPen(_round_pen(tint(int(90 + 160 * value), 120), 2.2))
-            painter.drawLine(
-                QPointF(math.cos(a) * base, math.sin(a) * base),
-                QPointF(math.cos(a) * (base + length), math.sin(a) * (base + length)),
-            )
-        painter.restore()
+            # Barres réactives au son
+            painter.save()
+            painter.translate(center)
+            compact = not self.show_labels
+            base = radius * (0.66 if compact else 0.5)
+            for i, value in enumerate(self._bars):
+                a = math.radians(i * 360 / BARS - 90)
+                length = radius * ((0.02 + 0.12 * value) if compact else (0.03 + 0.17 * value))
+                painter.setPen(_round_pen(tint(int(90 + 160 * value), 120), 2.2))
+                painter.drawLine(
+                    QPointF(math.cos(a) * base, math.sin(a) * base),
+                    QPointF(math.cos(a) * (base + length), math.sin(a) * (base + length)),
+                )
+            painter.restore()
 
         # Noyau : portrait d'ALICIA, qui « flotte » doucement et grossit un peu quand elle parle
         core_r = radius * ((0.63 if compact else 0.47) + 0.025 * self._level)

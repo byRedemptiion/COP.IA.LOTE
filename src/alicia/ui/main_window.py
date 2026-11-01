@@ -769,6 +769,7 @@ class MainWindow(QMainWindow):
         self.settings_page.load_stream(self.services.settings.stream)
         self.settings_page.load_player(self.services.settings.player)
         self.settings_page.load_brains(self.services.settings.ai)
+        self.settings_page.load_orb(self.orb.prefs, self.orb.size_px)
         self.settings_page.version_label.setText(
             f"{PROJECT_NAME} v{__version__} {self._build_text()}".strip()
         )
@@ -1087,6 +1088,13 @@ class MainWindow(QMainWindow):
             self._save("duo", "hear_peer", bool(value))
         elif key == "duo_start":
             self.ask_duo_topic()
+        elif key == "orb_pref":
+            name, pref = value  # type: ignore[misc]
+            self.orb.set_pref(str(name), pref)
+        elif key == "orb_size":
+            self.orb.set_orb_size(int(value))  # type: ignore[call-overload]
+        elif key == "orb_reset_position":
+            self.orb.reset_position()
         elif key == "show_logs":
             self.show_page(0)
             if not self.logs_panel.isVisible():
@@ -1120,10 +1128,10 @@ class MainWindow(QMainWindow):
             on = bool(value)
             self.services.settings = replace(self.services.settings, stream_visible=on)
             self.orb.set_stream_visible(on)
-            box = self.settings_page.stream_box
-            box.blockSignals(True)
-            box.setChecked(on)
-            box.blockSignals(False)
+            for box in (self.settings_page.stream_box, self.settings_page.orb_stream_box):
+                box.blockSignals(True)
+                box.setChecked(on)
+                box.blockSignals(False)
             self._save("ui", "stream_visible", on)
             self._notify(
                 "Le rond et la bulle sont visibles en stream (OBS : capture d'écran ou de fenêtre)."
@@ -1287,6 +1295,13 @@ class MainWindow(QMainWindow):
         self.orb.duo_requested.connect(self.ask_duo_topic)
         self.orb.duo_replay_requested.connect(self.replay_duo_message)
         self.orb.copilot_toggled.connect(self.set_copilot)
+        self.orb.talk_requested.connect(self.talk_from_menu)
+        self.orb.replay_requested.connect(self.replay_last)
+        self.orb.analyze_requested.connect(self.hotkey_analyze)
+        self.orb.settings_requested.connect(lambda: (self.show_panel(), self.show_page(2)))
+        self.orb.speak_toggled.connect(self.voice_box.setChecked)
+        self.orb.speak_on = self.voice_box.isChecked()
+        self.voice_box.toggled.connect(lambda on: setattr(self.orb, "speak_on", on))
         self.orb.twitch_channel = settings.stream.twitch_channel
         self.orb.set_stream_visible(settings.stream_visible)
         self.settings_page.stream_box.blockSignals(True)
@@ -2018,6 +2033,33 @@ class MainWindow(QMainWindow):
         msg = dict(self._duo_inbox.pop(0))
         msg["_queued"] = True
         self._duo_received(msg)
+
+    def talk_from_menu(self) -> None:
+        """« Parler à VIIRUS » (menu du rond) : il écoute ta phrase, sans touche ni réveil."""
+        if self.wake is not None and self.wake.running:
+            self.stop_voice()
+            self.wake.listen_now(10.0)  # la prochaine phrase est ta demande
+            self._core("listening")
+            self._set_status("🎙 Je t'écoute…")
+            if self._bubble_active():
+                self.bubble.set_question("🎙 …")
+                self.bubble.keep()
+            return
+        self.talk_pressed()  # sans réveil vocal : 7 s d'enregistrement
+        QTimer.singleShot(7000, self.talk_released)
+
+    def replay_last(self) -> None:
+        """« Réécouter le dernier message » : le dernier message du duo, sinon sa dernière réponse."""
+        if self._duo_last_msg is not None:
+            self.replay_duo_message()
+            return
+        text = self.answer.toPlainText().strip()
+        if not text:
+            self._notify("Rien à réécouter pour l'instant.")
+            return
+        if self._bubble_active():
+            self.bubble.ask("")
+        self._bubble_finish(text, self._say(text))
 
     def replay_duo_message(self) -> None:
         """« Réécouter le dernier message » (menu du rond / icône près de l'horloge)."""

@@ -22,6 +22,7 @@ from PySide6.QtCore import QPoint, QPropertyAnimation, QRect, Qt, QTimer, Signal
 from PySide6.QtGui import QAction, QGuiApplication
 from PySide6.QtWidgets import QFrame, QHBoxLayout, QLabel, QMenu, QVBoxLayout, QWidget
 
+from alicia.core.persona import current as current_persona
 from alicia.ui.core_widget import AliciaCore
 from alicia.ui.naming import named
 from alicia.ui.theme import BG, DEEP, GOLD, PINK, PINK_SOFT, STYLESHEET, TEXT, rgb
@@ -407,6 +408,11 @@ class OrbWindow(QWidget):
     duo_requested = Signal()
     duo_replay_requested = Signal()
     copilot_toggled = Signal(bool)
+    talk_requested = Signal()  # « Parler à VIIRUS »
+    replay_requested = Signal()  # « Réécouter le dernier message »
+    analyze_requested = Signal()  # « Analyse rapide »
+    settings_requested = Signal()  # « Réglages »
+    speak_toggled = Signal(bool)  # « Voix activée »
 
     def __init__(self, size: int = 210, position_file: Path | None = None) -> None:
         super().__init__(
@@ -438,8 +444,12 @@ class OrbWindow(QWidget):
         self.current_game = "auto"
         self.wake_on = False
         self.copilot_on = False  # mode Copilote (interventions spontanées)
+        self.speak_on = True  # réponses lues à voix haute
+        # Préférences du mode bulle (Réglages → Général → Mode bulle), gardées dans orb.json
+        self.prefs: dict[str, object] = dict(ORB_PREFS)
         self.vision = "window"
         self._drag: QPoint | None = None
+        self._press_at: QPoint | None = None
         self._placed = False
         self.size_px = size
         self.edit_panel: EditPanel | None = None
@@ -458,6 +468,10 @@ class OrbWindow(QWidget):
 
     def _load_prefs(self) -> None:
         data = self._read_file()
+        for key, default in ORB_PREFS.items():
+            if key in data and type(data[key]) is type(default):
+                self.prefs[key] = data[key]
+        self._apply_prefs()
         if "orb_size" in data:
             try:
                 self.set_orb_size(int(data["orb_size"]), save=False)
@@ -476,6 +490,35 @@ class OrbWindow(QWidget):
         self.bubble.follow(self.frameGeometry())
         if save:
             self._save_position()
+
+    def set_pref(self, key: str, value: object) -> None:
+        """Change une préférence du mode bulle, l'applique tout de suite et l'enregistre."""
+        if key not in ORB_PREFS:
+            return
+        self.prefs[key] = type(ORB_PREFS[key])(value)
+        self._apply_prefs()
+        self._save_position()
+
+    def _apply_prefs(self) -> None:
+        prefs = self.prefs
+        self.core.show_hud = bool(prefs["show_hud"])
+        if self.core.show_labels != bool(prefs["show_labels"]):
+            self.core.show_labels = bool(prefs["show_labels"])
+        self.core.anims_on = bool(prefs["anims"])
+        self.core.load_anims(self.core.anim_folder)
+        self.setWindowOpacity(max(0.3, min(1.0, float(prefs["opacity"]))))
+        on_top = bool(prefs["on_top"])
+        if bool(self.windowFlags() & Qt.WindowType.WindowStaysOnTopHint) != on_top:
+            visible = self.isVisible()
+            self.setWindowFlag(Qt.WindowType.WindowStaysOnTopHint, on_top)
+            if visible:
+                self.show()
+        self.core.update()
+
+    def reset_position(self) -> None:
+        """Replace le rond en haut à droite et recolle la bulle."""
+        self.bubble.reset_offset()
+        self._reset_position()
 
     def start_editing(self) -> None:
         """Mode édition : bulle d'exemple et panneau de réglages à côté du rond."""
@@ -504,7 +547,7 @@ class OrbWindow(QWidget):
         return QPoint(area.right() - self.width() - MARGIN, area.top() + MARGIN + 40)
 
     def _saved_position(self) -> QPoint | None:
-        if self.position_file is None:
+        if self.position_file is None or not self.prefs["remember_position"]:
             return None
         try:
             data = json.loads(self.position_file.read_text(encoding="utf-8"))
@@ -524,7 +567,9 @@ class OrbWindow(QWidget):
             return
         try:
             self.position_file.parent.mkdir(parents=True, exist_ok=True)
-            data: dict[str, object] = {"x": self.x(), "y": self.y(), "orb_size": self.size_px}
+            data: dict[str, object] = {"orb_size": self.size_px, **self.prefs}
+            if self.prefs["remember_position"]:
+                data.update({"x": self.x(), "y": self.y()})
             data.update(self.bubble.layout_prefs())
             if self.bubble.offset is not None:
                 data["bubble_dx"] = self.bubble.offset.x()
@@ -566,7 +611,10 @@ class OrbWindow(QWidget):
 
     def mousePressEvent(self, event) -> None:  # type: ignore[no-untyped-def]  # noqa: N802
         if event.button() == Qt.MouseButton.LeftButton:
-            self._drag = event.globalPosition().toPoint() - self.frameGeometry().topLeft()
+            self._press_at = event.globalPosition().toPoint()
+            locked = bool(self.prefs["locked"]) and not self.bubble.editing
+            if not locked:
+                self._drag = event.globalPosition().toPoint() - self.frameGeometry().topLeft()
             event.accept()
 
     def mouseMoveEvent(self, event) -> None:  # type: ignore[no-untyped-def]  # noqa: N802
@@ -575,79 +623,116 @@ class OrbWindow(QWidget):
             event.accept()
 
     def mouseReleaseEvent(self, event) -> None:  # type: ignore[no-untyped-def]  # noqa: N802
+        moved = (
+            self._press_at is not None
+            and (event.globalPosition().toPoint() - self._press_at).manhattanLength() > 4
+        )
+        self._press_at = None
         if self._drag is not None:
             self._drag = None
-            self._save_position()
+            if moved:
+                self._save_position()
+        if not moved and event.button() == Qt.MouseButton.LeftButton and self.prefs["click_opens"]:
+            self.open_panel.emit()  # clic simple (sans glisser) : panneau complet
 
     def mouseDoubleClickEvent(self, event) -> None:  # type: ignore[no-untyped-def]  # noqa: N802
-        self.open_panel.emit()
+        if self.prefs["dblclick_opens"]:
+            self.open_panel.emit()
 
     def contextMenuEvent(self, event) -> None:  # type: ignore[no-untyped-def]  # noqa: N802
+        """Menu rapide pendant le jeu (les réglages détaillés sont dans le panneau)."""
         menu = QMenu(self)
         menu.setStyleSheet(
             f"QMenu {{ background:{DEEP}; color:{TEXT}; border:1px solid {PINK}; padding:4px; }}"
             "QMenu::item { padding:6px 18px; border-radius:6px; }"
             f"QMenu::item:selected {{ background: rgba({rgb(PINK)},0.35); }}"
+            f"QMenu::separator {{ height:1px; background: rgba({rgb(PINK)},0.35); margin:4px 8px; }}"
         )
-        actions = (
-            ("Ouvrir le panneau complet", self.open_panel.emit),
-            ("Couper la voix", self.stop_voice.emit),
-            ("Mode édition (taille, bulle, texte)…", self.start_editing),
-            ("Masquer la bulle", self.bubble.fade_out),
-            ("Recoller la bulle au rond", self.bubble.reset_offset),
-            (
-                "Réveil « Alicia » : activé ✓" if self.wake_on else "Réveil « Alicia » : coupé",
-                lambda: self.wake_toggled.emit(not self.wake_on),
-            ),
-            ("Chat Twitch", self.twitch_requested.emit),
-            ("Message à l'autre robot…", self.duo_requested.emit),
-            ("Réécouter le dernier message", self.duo_replay_requested.emit),
-            (
-                "Mode Copilote : activé ✓" if self.copilot_on else "Mode Copilote : coupé",
-                lambda: self.copilot_toggled.emit(not self.copilot_on),
-            ),
-            (
-                "Visible en stream (OBS) ✓" if stream_visible else "Visible en stream (OBS)",
-                lambda: self.stream_toggled.emit(not stream_visible),
-            ),
-            ("Choisir l'IA / la clé", self.setup_requested.emit),
-            ("Mettre à jour COP'IA'LOTE", self.update_requested.emit),
-            ("Replacer en haut à droite", self._reset_position),
-            (None, None),
-            ("Quitter ALICIA", self.quit_requested.emit),
-        )
-        vision = menu.addMenu("Vision")
-        for key, label in (
-            ("window", "L'application (le jeu)"),
-            ("cursor", "Autour du curseur"),
-            ("screen", "L'écran entier"),
-        ):
-            action = QAction(label, vision)
-            action.setCheckable(True)
-            action.setChecked(key == self.vision)
-            action.triggered.connect(lambda _=False, k=key: self.vision_chosen.emit(k))
-            vision.addAction(action)
-        if self.games:
-            games = menu.addMenu("Jeu")
-            for key, name in self.games:
-                action = QAction(name, games)
-                action.setCheckable(True)
-                action.setChecked(key == self.current_game)
-                action.triggered.connect(lambda _=False, k=key: self.game_chosen.emit(k))
-                games.addAction(action)
-            menu.addSeparator()
-        for text, slot in actions:
-            if text is None:
-                menu.addSeparator()
-                continue
-            action = QAction(named(text), menu)
-            action.triggered.connect(slot)
-            menu.addAction(action)
+        build_menu(self, menu)
         menu.exec(event.globalPos())
 
     def _reset_position(self) -> None:
         self.move(self._default_position())
         self._save_position()
+
+
+ORB_PREFS: dict[str, object] = {
+    "show_hud": True,  # anneaux animés autour du robot
+    "show_labels": False,  # nom et état sous le rond
+    "anims": True,  # animations du robot (dossier anims)
+    "opacity": 1.0,
+    "remember_position": True,
+    "on_top": True,  # toujours au-dessus des autres fenêtres
+    "locked": False,  # position verrouillée (sauf en mode édition)
+    "click_opens": False,  # clic gauche : ouvre le panneau complet
+    "dblclick_opens": True,  # double-clic : ouvre le panneau complet
+}
+
+
+def _add(menu, text: str, slot, checked: bool | None = None):  # type: ignore[no-untyped-def]
+    action = QAction(named(text), menu)
+    if checked is not None:
+        action.setCheckable(True)
+        action.setChecked(checked)
+    action.triggered.connect(slot)
+    menu.addAction(action)
+    return action
+
+
+def build_menu(orb: OrbWindow, menu) -> None:  # type: ignore[no-untyped-def]
+    """Le menu clic droit du rond : actions rapides, puis sous-menus."""
+    title = current_persona().title
+    _add(menu, "💬  Ouvrir COP'IA'LOTE", orb.open_panel.emit)
+    _add(menu, f"🎙  Parler à {title}", orb.talk_requested.emit)
+    _add(menu, "🔊  Réécouter le dernier message", orb.replay_requested.emit)
+    menu.addSeparator()
+    _add(
+        menu,
+        "💡  Mode Copilote",
+        lambda: orb.copilot_toggled.emit(not orb.copilot_on),
+        orb.copilot_on,
+    )
+    vision = menu.addMenu("👁  Vision")
+    for key, label in (
+        ("window", "Application (le jeu)"),
+        ("cursor", "Autour du curseur"),
+        ("screen", "Écran entier"),
+    ):
+        _add(vision, label, lambda _=False, k=key: orb.vision_chosen.emit(k), key == orb.vision)
+    if orb.games:
+        games = vision.addMenu("🎮  Jeu")
+        for key, name in orb.games:
+            _add(
+                games, name, lambda _=False, k=key: orb.game_chosen.emit(k), key == orb.current_game
+            )
+    vision.addSeparator()
+    _add(vision, "Analyse rapide", orb.analyze_requested.emit)
+    voice = menu.addMenu("🔊  Voix")
+    _add(voice, "Voix activée", lambda: orb.speak_toggled.emit(not orb.speak_on), orb.speak_on)
+    _add(voice, "Couper la voix", orb.stop_voice.emit)
+    _add(
+        voice,
+        f"Microphone activé (réveil « {current_persona().name} »)",
+        lambda: orb.wake_toggled.emit(not orb.wake_on),
+        orb.wake_on,
+    )
+    _add(voice, "Réécouter le dernier message", orb.replay_requested.emit)
+    _add(voice, "Masquer la bulle de texte", orb.bubble.fade_out)
+    _add(voice, "Message à l'autre robot (duo)…", orb.duo_requested.emit)
+    stream = menu.addMenu("🎥  Stream")
+    _add(
+        stream,
+        "Visible dans OBS / Discord",
+        lambda: orb.stream_toggled.emit(not stream_visible),
+        stream_visible,
+    )
+    _add(stream, "Chat Twitch", orb.twitch_requested.emit)
+    menu.addSeparator()
+    _add(menu, "✏  Mode édition", orb.start_editing)
+    _add(menu, "⚙  Réglages", orb.settings_requested.emit)
+    _add(menu, "↻  Mettre à jour COP'IA'LOTE", orb.update_requested.emit)
+    menu.addSeparator()
+    _add(menu, f"✕  Quitter {title}", orb.quit_requested.emit)
 
 
 class EditPanel(QWidget):
@@ -712,14 +797,24 @@ class EditPanel(QWidget):
             self.side.addItem(text, key)
         grid.addWidget(QLabel("Place de la bulle"), 7, 0)
         grid.addWidget(self.side, 7, 1, 1, 2)
-        reset = QPushButton("Réinitialiser")
+        place = QHBoxLayout()
+        for text, slot in (
+            ("Recoller la bulle au rond", self._stick),
+            ("Replacer en haut à droite", self.orb.reset_position),
+        ):
+            button = QPushButton(text)
+            button.clicked.connect(slot)
+            place.addWidget(button)
+        grid.addWidget(QLabel("Position"), 8, 0)
+        grid.addLayout(place, 8, 1, 1, 2)
+        reset = QPushButton("Tout réinitialiser")
         reset.setObjectName("ghost")
         reset.clicked.connect(self.reset)
-        done = QPushButton("Terminer")
+        done = QPushButton("✓  Terminer l'édition")
         done.setObjectName("primary")
         done.clicked.connect(self.orb.stop_editing)
-        grid.addWidget(reset, 8, 0)
-        grid.addWidget(done, 8, 2)
+        grid.addWidget(reset, 9, 0)
+        grid.addWidget(done, 9, 2)
         self.setMinimumWidth(560)
 
         self.size.valueChanged.connect(lambda v: self.orb.set_orb_size(v, save=False))
@@ -728,6 +823,10 @@ class EditPanel(QWidget):
         self.alpha.valueChanged.connect(lambda v: self._bubble(alpha=v / 100))
         self.seconds.valueChanged.connect(lambda v: self._bubble(seconds=v))
         self.side.currentIndexChanged.connect(self._side_changed)
+
+    def _stick(self) -> None:
+        self.orb.bubble.reset_offset()
+        self.orb.bubble.show_sample()
 
     def _bubble(self, **changes: object) -> None:
         bubble = self.orb.bubble
@@ -760,6 +859,7 @@ class EditPanel(QWidget):
         self.move(x, max(area.top() + 8, y))
 
     def reset(self) -> None:
+        self.orb.reset_position()
         self.orb.bubble.offset = None
         self.size.setValue(210)
         self.width_.setValue(BUBBLE_WIDTH)
