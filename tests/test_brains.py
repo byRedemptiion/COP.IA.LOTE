@@ -90,3 +90,29 @@ def test_old_ollama_deep_model_moves_to_the_ollama_section(tmp_path):
     ai = load_settings(cwd=tmp_path, user_dir=tmp_path, environ={}).ai
     assert ai.ollama.deep_model == "qwen3-vl:8b" and ai.deep_model == ""
     assert create_deep_model(ai).model == "qwen3-vl:8b"
+
+
+def test_tester_makes_a_real_call(qt_app, tmp_path, monkeypatch):
+    from tests.test_duo import _wait
+
+    from alicia.app import build_services
+    from alicia.core.ai.providers.fake import FakeModel
+    from alicia.core.errors import ProviderError, ProviderErrorKind
+    from alicia.ui.main_window import MainWindow
+
+    monkeypatch.chdir(tmp_path)
+    model = FakeModel()
+    window = MainWindow(
+        build_services(load_settings(environ={"ALICE_AI_PROVIDER": "fake"}), demo=True, model=model)
+    )
+    state = window.settings_page.brain_labels["rapide"]["state"]
+    try:
+        window.test_brain("rapide")
+        _wait(qt_app, lambda: "✓" in state.text())
+        assert "la clé marche" in state.text() and model.requests[-1].images == ()
+        model.fail_with = ProviderError(ProviderErrorKind.AUTH, "Clé refusée par Gemini.")
+        window.test_brain("rapide")
+        _wait(qt_app, lambda: "⚠" in state.text())
+        assert "refusée" in state.text()
+    finally:
+        window.close()

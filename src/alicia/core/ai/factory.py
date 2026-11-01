@@ -69,3 +69,29 @@ def deep_reason(question: str) -> str | None:
     plain = "".join(c for c in plain if not unicodedata.combining(c))
     match = _DEEP.search(plain)
     return match.group(0) if match else None
+
+
+def ping(model) -> int:  # type: ignore[no-untyped-def]
+    """Un vrai petit appel à l'IA (sans image) pour vérifier la clé. Renvoie la durée en ms.
+
+    Lève ProviderError si la clé est refusée, le quota atteint, etc."""
+    import time
+
+    from alicia.core.ai.base import AnalysisRequest
+
+    problem = model.check()
+    if problem:
+        from alicia.core.errors import AliciaError
+
+        raise AliciaError(problem, detail="vérification locale")
+    started = time.perf_counter()
+    model.analyze(
+        AnalysisRequest(
+            question="Réponds seulement : OK",
+            images=(),
+            system_prompt="Test de connexion. Réponds en un mot.",
+            max_output_tokens=16,
+            temperature=0.0,
+        )
+    )
+    return int((time.perf_counter() - started) * 1000)

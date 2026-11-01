@@ -2307,14 +2307,41 @@ class MainWindow(QMainWindow):
             log.warning("Cerveau réfléchi indisponible : %s", exc.detail)
         self.provider_label.setText(f"IA · {model.provider} / {model.model}")
         log.info("IA choisie : %s/%s", model.provider, model.model)
-        problem = model.check()
-        self._notify(
-            "⚠ " + problem
-            if problem
-            else f"IA prête ✓ Maintiens F10 ou dis « {current_persona().name}… »"
-        )
         self._update_state()
         self.prepare_ollama()
+        self._copilot_pause_until = 0.0  # nouvelle clé : le Copilote réessaie tout de suite
+        self._copilot_fails = 0
+        self.check_ai_now()
+
+    def check_ai_now(self) -> None:
+        """Essaie vraiment l'IA (petit appel) et dit si la clé est acceptée."""
+        from alicia.core.ai.factory import ping
+
+        model = self.services.model
+        if self.services.demo:
+            return
+        self._notify(f"Test de la clé {model.provider}…")
+
+        def done(ms: int) -> None:
+            log.info("Clé %s acceptée : réponse en %d ms", model.provider, ms)
+            self._notify(
+                f"✓ Clé {model.provider} acceptée (réponse en {ms} ms). "
+                f"Maintiens F10 ou dis « {current_persona().name}… »"
+            )
+            if self.settings_page.isVisible():
+                self.settings_page.show_brain(
+                    "rapide",
+                    self.settings_page.brain_labels["rapide"]["provider"].text(),
+                    model.model,
+                    f"✓ connecté : la clé marche ({ms} ms)",
+                )
+
+        def failed(exc: Exception) -> None:
+            message = exc.user_message if isinstance(exc, AliciaError) else str(exc)
+            log.warning("Test de la clé %s : %s", model.provider, getattr(exc, "detail", message))
+            self._notify(f"⚠ Clé {model.provider} : {message}")
+
+        self._background(lambda: ping(model), done, failed)
 
     _PROVIDER_NAMES = {
         "gemini": "Gemini (Google, en ligne)",
@@ -2379,15 +2406,18 @@ class MainWindow(QMainWindow):
         labels = page.brain_labels[kind]
         labels["state"].setText("● test en cours…")
 
-        def done(problem: str | None) -> None:
-            labels["state"].setText(f"⚠ {problem}" if problem else "✓ connecté, prêt")
-            log.info("Test du %s : %s", kind, problem or "OK")
+        from alicia.core.ai.factory import ping
+
+        def done(ms: int) -> None:
+            labels["state"].setText(f"✓ connecté : la clé marche (réponse en {ms} ms)")
+            log.info("Test du cerveau %s : OK en %d ms", kind, ms)
 
         def failed(exc: Exception) -> None:
             message = exc.user_message if isinstance(exc, AliciaError) else str(exc)
             labels["state"].setText(f"⚠ {message}")
+            log.warning("Test du cerveau %s : %s", kind, getattr(exc, "detail", "") or message)
 
-        self._background(model.check, done, failed)
+        self._background(lambda: ping(model), done, failed)
 
     def _reload_ai(self) -> None:
         """Relit les réglages d'IA et recrée les deux cerveaux, sans redémarrer."""
