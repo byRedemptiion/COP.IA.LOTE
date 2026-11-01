@@ -10,8 +10,10 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import queue
 import threading
 import time
+from collections import deque
 from collections.abc import Callable
 from concurrent.futures import Future, ThreadPoolExecutor
 from dataclasses import replace
@@ -519,6 +521,7 @@ class Speaker:
         self.player = player or SoundDevicePlayer(settings.output_device)
         self._stop = threading.Event()
         self._thread: threading.Thread | None = None
+        self._queue: queue.Queue[str | None] | None = None
         self.on_state: Callable[[str, str | None], None] = lambda _state, _msg: None
 
     @property
@@ -537,15 +540,40 @@ class Speaker:
         sentences = split_sentences(pronounce(text))  # prénoms dits comme il faut
         if not sentences:
             return False
+        source: queue.Queue[str | None] = queue.Queue()
+        for sentence in sentences:
+            source.put(sentence)
+        source.put(None)
+        self._start(source, synthesizer)
+        return True
+
+    # --- lecture au fil de l'eau : la voix part dès la 1re phrase écrite par l'IA -----------
+
+    def stream_begin(self) -> None:
+        self.stop()
+        self._queue = queue.Queue()
+        self._start(self._queue, None)
+
+    def stream_feed(self, sentence: str) -> None:
+        from alicia.core.persona import pronounce
+
+        if self._queue is not None and sentence.strip():
+            self._queue.put(pronounce(sentence))
+
+    def stream_end(self) -> None:
+        if self._queue is not None:
+            self._queue.put(None)
+            self._queue = None
+
+    def _start(self, source: queue.Queue[str | None], synthesizer: Synthesizer | None) -> None:
         self._stop = threading.Event()
         self._thread = threading.Thread(
             target=self._run,
-            args=(sentences, self._stop, synthesizer or self.synthesizer),
+            args=(source, self._stop, synthesizer or self.synthesizer),
             name="alicia-voice",
             daemon=True,
         )
         self._thread.start()
-        return True
 
     def warm_up_async(self) -> None:
         """Charge un moteur local (Kokoro) en arrière-plan pour que la 1re réponse parte vite."""
@@ -562,33 +590,57 @@ class Speaker:
         threading.Thread(target=run, name="alicia-voice-load", daemon=True).start()
 
     def stop(self) -> None:
+        self._queue = None
         if self.speaking:
             self._stop.set()
             log.info("Voix coupée")
             self._thread.join(1.0)  # type: ignore[union-attr]
 
     def _run(
-        self, sentences: list[str], stop: threading.Event, synthesizer: Synthesizer | None = None
+        self,
+        source: queue.Queue[str | None],
+        stop: threading.Event,
+        synthesizer: Synthesizer | None = None,
     ) -> None:
         synthesize = synthesizer or self.synthesizer
         started = time.perf_counter()
         stream = None
         error: str | None = None
         pool = ThreadPoolExecutor(max_workers=2, thread_name_prefix="alicia-tts")
-        futures: list[Future] = [pool.submit(synthesize, s) for s in sentences[:2]]
+        futures: deque[Future] = deque()
+        finished = False
+        idle_since = time.monotonic()
+
+        def pull(wait: float) -> None:
+            """Prend la phrase suivante (et lance sa synthèse : 2 d'avance)."""
+            nonlocal finished, idle_since
+            try:
+                item = source.get(timeout=wait) if wait else source.get_nowait()
+            except queue.Empty:
+                return
+            if item is None:
+                finished = True
+            else:
+                futures.append(pool.submit(synthesize, item))
+                idle_since = time.monotonic()
+
         try:
-            for index in range(len(sentences)):
-                if stop.is_set():
-                    break
-                samples = futures[index].result()
-                if index + 2 < len(sentences):
-                    futures.append(pool.submit(synthesize, sentences[index + 2]))
+            while not stop.is_set():
+                while not finished and len(futures) < 2 and not source.empty():
+                    pull(0)
+                if not futures:
+                    if finished or time.monotonic() - idle_since > 90:
+                        break  # fin du texte (ou plus rien depuis 90 s)
+                    pull(0.15)
+                    continue
+                samples = futures.popleft().result()
+                if not finished and len(futures) < 2:
+                    pull(0)
                 if stream is None:
                     stream = self.player.open()
                     log.info(
-                        "Voix : 1re phrase prête en %d ms (%d phrases)",
+                        "Voix : 1re phrase prête en %d ms",
                         (time.perf_counter() - started) * 1000,
-                        len(sentences),
                     )
                     self.on_state("speaking", None)
                 self.player.play(stream, apply_volume(samples, self.settings.volume), stop)

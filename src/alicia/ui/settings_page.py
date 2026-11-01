@@ -1174,28 +1174,39 @@ class SettingsPage(QWidget):
             4,
         )
         self.gallery_buttons: dict[str, QPushButton] = {}
+        self.gallery_sections: dict[str, QWidget] = {}
         row = 4
         for engine, title, voices in (
-            ("edge", "VOIX EDGE (MICROSOFT)", [(n, label) for n, label in EDGE_VOICES]),
-            ("gemini", "VOIX GEMINI (GOOGLE)", [(n, f"{n} — {d}") for n, d in GEMINI_VOICES]),
+            ("edge", "Voix Edge (Microsoft)", [(n, label) for n, label in EDGE_VOICES]),
+            ("gemini", "Voix Gemini (Google)", [(n, f"{n} — {d}") for n, d in GEMINI_VOICES]),
         ):
-            header = QLabel(title)
-            header.setObjectName("sectionTitle")
-            grid.addWidget(header, row, 0, 1, 4)
-            row += 1
-            for name, label in voices:
+            body = QWidget()
+            inner = QGridLayout(body)
+            inner.setContentsMargins(0, 0, 0, 0)
+            for index, (name, label) in enumerate(voices):
                 key = f"{engine}|{name}"
-                grid.addWidget(QLabel(label), row, 0, 1, 2)
+                inner.addWidget(QLabel(label), index, 0, 1, 2)
                 listen = QPushButton("▶ Écouter")
                 listen.clicked.connect(lambda _=False, k=key: self._emit("voice_preview", k))
                 choose = QPushButton("Choisir")
                 choose.setObjectName("ghost")
                 choose.clicked.connect(lambda _=False, k=key: self._emit("voice_choose", k))
-                grid.addWidget(listen, row, 2)
-                grid.addWidget(choose, row, 3)
+                inner.addWidget(listen, index, 2)
+                inner.addWidget(choose, index, 3)
                 self.gallery_buttons[key] = choose
-                row += 1
-        row = self._designed_voices(grid, row)
+            inner.setColumnStretch(0, 1)
+            section = _collapsible(f"{title} — {len(voices)} voix", body)
+            self.gallery_sections[engine] = section
+            grid.addWidget(section, row, 0, 1, 4)
+            row += 1
+        body = QWidget()
+        inner = QGridLayout(body)
+        inner.setContentsMargins(0, 0, 0, 0)
+        self._designed_voices(inner, 0)
+        section = _collapsible("✨ Voix sur mesure (Gemini 3.8)", body)
+        self.gallery_sections["designed"] = section
+        grid.addWidget(section, row, 0, 1, 4)
+        row += 1
         self.gallery_state = _muted("")
         grid.addWidget(self.gallery_state, row, 0, 1, 4)
         return panel
@@ -1204,9 +1215,6 @@ class SettingsPage(QWidget):
         """Voix sur mesure Gemini : on la décrit, Gemini la crée, on l'écoute, on la choisit."""
         from alicia.core.audio.voice_design import PRESETS
 
-        header = QLabel("✨ VOIX SUR MESURE (GEMINI 3.8)")
-        header.setObjectName("sectionTitle")
-        grid.addWidget(header, row, 0, 1, 4)
         grid.addWidget(
             _muted(
                 "Décris la voix en une ou deux phrases (âge, timbre, énergie, accent) : Gemini "

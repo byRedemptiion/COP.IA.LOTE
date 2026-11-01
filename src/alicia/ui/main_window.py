@@ -3200,6 +3200,10 @@ class MainWindow(QMainWindow):
             self.bubble.ask("🎙 …" if audio is not None else shown)
         web_search = self.web_box.isChecked()
         spoken = self.voice_box.isChecked() and self.services.speaker is not None
+        from alicia.core.audio.text import LiveSentences
+
+        self._live = LiveSentences() if spoken else None  # la voix part dès la 1re phrase
+        self._live_on = False
         self.sources_label.setText("")
         cancel = threading.Event()
         self.cancel_event = cancel
@@ -3841,6 +3845,37 @@ class MainWindow(QMainWindow):
             self.answer.setTextCursor(cursor)
             if self._bubble_active():
                 self.bubble.append(value)
+            self._speak_live(value)
+
+    def _speak_live(self, delta: str) -> None:
+        """Lecture au fil de l'eau : chaque phrase complète part à la voix tout de suite."""
+        live, speaker = getattr(self, "_live", None), self.services.speaker
+        if live is None or speaker is None or not self.voice_box.isChecked():
+            return
+        for sentence in live.feed(delta):
+            if not self._live_on:
+                speaker.stream_begin()
+                self._live_on = True
+                self.stop_voice_button.setEnabled(True)
+            speaker.stream_feed(sentence)
+
+    def _end_live(self, final: str | None = None) -> bool | None:
+        """Fin de la réponse : lit la suite (True), ou None si rien n'a été lu en direct."""
+        live, on = getattr(self, "_live", None), getattr(self, "_live_on", False)
+        self._live, self._live_on = None, False
+        speaker = self.services.speaker
+        if live is None or not on or speaker is None:
+            return None
+        if final is None:
+            speaker.stream_end()  # finit la phrase en cours, puis s'arrête
+            return True
+        rest = live.rest(final)
+        if rest is None:  # réponse relancée : on relit la version finale
+            return self._say(final)
+        for sentence in rest:
+            speaker.stream_feed(sentence)
+        speaker.stream_end()
+        return True
 
     def _check_ollama_heat(self) -> None:
         """Une fois : prévient si Ollama calcule sur le processeur (c'est ce qui chauffe)."""
@@ -3870,6 +3905,12 @@ class MainWindow(QMainWindow):
 
     def _analysis_done(self, outcome: AnalysisOutcome) -> None:
         self._check_ollama_heat()
+        if outcome.action is not None or (
+            outcome.result is not None and outcome.result.extra.get("duo_relay")
+        ):
+            if getattr(self, "_live_on", False) and self.services.speaker is not None:
+                self.services.speaker.stop()  # pas pour lui : on coupe
+            self._live, self._live_on = None, False
         if outcome.action is not None:
             self._action_done(outcome)
             return
@@ -3897,7 +3938,8 @@ class MainWindow(QMainWindow):
             self.question.setText(f"🎙 {outcome.transcript}")
         self._show_sources(result)
         self._remember_guide(result, outcome.profile)
-        self._bubble_finish(result.text, self._say(result.text))
+        live = self._end_live(result.text)
+        self._bubble_finish(result.text, self._say(result.text) if live is None else live)
         if result.extra.get("open_page"):
             self.open_guide(auto=True)  # l'IA juge la page utile : ouverte directement
         if result.extra.get("show_image"):
@@ -3914,6 +3956,7 @@ class MainWindow(QMainWindow):
         self.analysis_done.emit(outcome)
 
     def _failed(self, exc: Exception) -> None:
+        self._end_live()
         if isinstance(exc, ProviderError) and exc.kind is ProviderErrorKind.CANCELLED:
             self._set_status("Analyse annulée.")
             self._core_settle()

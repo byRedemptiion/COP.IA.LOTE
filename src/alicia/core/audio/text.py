@@ -55,3 +55,61 @@ def split_sentences(
         if cut > 0:
             sentences[0:1] = [first[: cut + 1].strip(), first[cut + 1 :].strip()]
     return sentences
+
+
+_MARKERS = re.compile(r"\[(?:OUVRIR|IMAGE|TRANSMETTRE)\]", re.IGNORECASE)
+_BOUNDARY = re.compile(r"[.!?…](?=\s)|\n")
+
+
+def _norm(text: str) -> str:
+    return re.sub(r"\W+", "", clean_for_speech(_MARKERS.sub("", text)).casefold())
+
+
+class LiveSentences:
+    """Texte de l'IA reçu morceau par morceau → phrases complètes à lire tout de suite.
+
+    La voix part dès la 1re phrase écrite, sans attendre la fin de la réponse.
+    """
+
+    def __init__(self) -> None:
+        self.raw = ""
+        self.used = 0  # caractères de ``raw`` déjà envoyés à la voix
+        self.blocked = False  # réponse « [TRANSMETTRE] … » : pour l'autre robot, pas lue
+        self.started = False
+
+    def feed(self, delta: str) -> list[str]:
+        self.raw += delta
+        if self.blocked:
+            return []
+        head = self.raw.lstrip()
+        if head.startswith("[") and "]" not in head:
+            return []  # un repère arrive peut-être
+        if head.upper().startswith("[TRANSMETTRE]"):
+            self.blocked = True
+            return []
+        pending = self.raw[self.used :]
+        ends = [m.end() for m in _BOUNDARY.finditer(pending)]
+        if not ends:
+            return []
+        self.used += ends[-1]
+        return self._sentences(pending[: ends[-1]])
+
+    def _sentences(self, chunk: str) -> list[str]:
+        out = split_sentences(_MARKERS.sub("", chunk), first_max=90 if not self.started else 260)
+        if out:
+            self.started = True
+        return out
+
+    def rest(self, final: str) -> list[str] | None:
+        """Phrases restantes de la réponse finale ; None si elle ne prolonge pas ce qui a
+        déjà été lu (réponse relancée, par exemple)."""
+        spoken = _norm(self.raw[: self.used])
+        if not _norm(final).startswith(spoken):
+            return None
+        count, cut = 0, 0
+        while cut < len(final) and count < len(spoken):
+            count += len(_norm(final[cut]))
+            cut += 1
+        while cut < len(final) and final[cut] in ".!?…:;,)»\"' \t\n":
+            cut += 1  # la ponctuation de la dernière phrase déjà lue
+        return self._sentences(final[cut:])

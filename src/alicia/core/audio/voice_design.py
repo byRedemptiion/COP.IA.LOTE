@@ -33,12 +33,12 @@ RATE = 24000  # fréquence attendue par le lecteur
 
 # Modèles proposés (on peut tout réécrire) : traits permanents seulement (âge, timbre…).
 PRESETS = {
-    "VIIRUS — petit garçon": (
-        "Un petit garçon d'environ 9 ans, voix aiguë, claire et pétillante, débit rapide et "
-        "espiègle, toujours enjoué ; français de France, sans accent."
+    "VIIRUS — petit robot": (
+        "Un petit robot de dessin animé, voix aiguë, claire et pétillante, débit rapide, "
+        "espiègle et toujours enjoué ; français de France, sans accent."
     ),
-    "ALICIA — petite fille": (
-        "Une petite fille d'environ 9 ans, voix aiguë, douce et vive, curieuse et "
+    "ALICIA — robote pétillante": (
+        "Une jeune femme robot de dessin animé, voix aiguë, douce et vive, curieuse et "
         "malicieuse ; français de France, sans accent."
     ),
 }
@@ -155,6 +155,12 @@ def _check(response: Any, what: str) -> dict[str, Any]:
         )
     if response.status_code == 429:
         raise AudioError(f"{what} : quota Gemini atteint, réessaie plus tard.", detail="429")
+    if response.status_code >= 400 and "safety" in response.text.casefold():
+        raise AudioError(
+            f"{what} : Google refuse cette description (règles de sécurité), sans doute "
+            "parce qu'elle décrit un enfant. Décris plutôt un personnage (petit robot…).",
+            detail=response.text[:400],
+        )
     if response.status_code >= 400:
         raise AudioError(f"{what} : erreur {response.status_code}.", detail=response.text[:400])
     try:
