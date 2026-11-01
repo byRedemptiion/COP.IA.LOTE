@@ -52,9 +52,23 @@ _IMAGE = re.compile(
     r"(?:le |la |les |l |un |une |ce |cette )?(?:carte|image|map|photo|schema|plan|emplacement)"
 )
 
+_THING = r"(?:image|carte|photo|fenetre|map|apercu|panneau|plan|schema|capture)"
+_CLOSE = re.compile(
+    r"\b(?:ferme|fermer|fermes|enleve|enlever|retire|retirer|cache|cacher|vire|virer|supprime|"
+    r"masque|masquer|degage|degager)\b(?:[- ]?(?:moi|nous|la|le|l))?\s+"
+    r"(?:le |la |les |l |ton |ta |tes |cette |ce |cet )?"
+    + _THING
+    + r"|\b(?:vois|voit|reste|toujours)\s+(?:encore\s+|toujours\s+)?"
+    r"(?:l |la |le |ton |ta |cette |ce )?" + _THING
+)
+
 
 def parse_guide_command(text: str) -> str | None:
-    """« ouvre le guide » → "open", « montre-moi la carte » → "image", sinon None."""
+    """« ouvre le guide » → "open", « montre-moi la carte » → "image",
+    « ferme l'image » → "close", sinon None."""
+    plain = re.sub(r"[^\w\s]", " ", _plain(text))
+    if len(plain.split()) <= 14 and _CLOSE.search(plain):
+        return "close"  # « ferme l'image », « je vois encore l'image que tu m'as montrée »
     plain = re.sub(r"[^\w\s-]", " ", _plain(text))
     if len(plain.split()) > 10:
         return None

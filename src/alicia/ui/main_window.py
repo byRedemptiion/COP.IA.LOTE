@@ -1599,11 +1599,12 @@ class MainWindow(QMainWindow):
 
         guide = parse_guide_command(text)  # « ouvre le guide », « montre-moi la carte »
         if guide is not None:
-            return ActionReply(
-                "J'ouvre le guide." if guide == "open" else "Voilà l'image.",
-                "guide_open" if guide == "open" else "guide_image",
-                done=True,
-            )
+            texts = {
+                "open": "J'ouvre le guide.",
+                "image": "Voilà l'image.",
+                "close": "C'est fermé.",
+            }
+            return ActionReply(texts[guide], f"guide_{guide}", done=True)
         wanted = parse_copilot_command(text)  # « active / désactive le copilote »
         if wanted is not None:
             return ActionReply(
@@ -3352,6 +3353,8 @@ class MainWindow(QMainWindow):
                 "Je n'ai pas encore de page à ouvrir : pose ta question avec la recherche web, "
                 "puis redemande-moi."
             )
+        if reply.intent == "guide_close" and not self.close_guide_image():
+            reply.text = "Je n'ai aucune image ouverte de mon côté."
         if reply.intent == "guide_image" and not self.show_guide_image():
             reply.text = "Je n'ai pas encore de page avec une image : pose d'abord ta question."
         if outcome.transcript is not None:
@@ -3677,6 +3680,14 @@ class MainWindow(QMainWindow):
         if not self.services.demo:
             QDesktopServices.openUrl(QUrl(source.url))
         self._notify(f"📖 Guide ouvert : {source.title}")
+        return True
+
+    def close_guide_image(self) -> bool:
+        """Ferme le panneau image du guide (commande vocale « ferme l'image »)."""
+        panel = getattr(self, "image_panel", None)
+        if panel is None or not panel.isVisible():
+            return False
+        panel.hide()
         return True
 
     def show_guide_image(self, auto: bool = False) -> bool:

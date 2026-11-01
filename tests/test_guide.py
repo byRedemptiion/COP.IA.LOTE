@@ -40,6 +40,11 @@ def test_voice_commands():
     assert parse_guide_command("montre-moi la carte") == "image"
     assert parse_guide_command("affiche l'emplacement") == "image"
     assert parse_guide_command("ouvre l'inventaire") is None
+    assert parse_guide_command("ferme l'image") == "close"
+    assert parse_guide_command("Viirus, enlève-moi la carte") == "close"
+    assert parse_guide_command("Pardon, je vois encore l'image que tu m'as montrée.") == "close"
+    assert parse_guide_command("cache cette fenêtre") == "close"
+    assert parse_guide_command("ferme la porte du fond") is None
     assert parse_guide_command("comment je fais la quête du guide de la forêt sombre ?") is None
 
 
@@ -126,6 +131,16 @@ def test_window_opens_guide_and_image_when_the_ai_asks(qt_app, tmp_path, monkeyp
         assert reply.action.intent == "guide_open"
         window._action_done(reply)
         assert opened == [True, False]
+
+        # « ferme l'image » à la voix : le panneau se ferme vraiment
+        from alicia.ui.image_panel import ImagePanel
+
+        window.image_panel = ImagePanel()
+        assert window.image_panel.show_image(_png(), "Carte", "https://g/1")
+        reply = window.services.analysis.analyze(DEMO_WINDOW, "ferme l'image")
+        assert reply.action.intent == "guide_close"
+        window._action_done(reply)
+        assert not window.image_panel.isVisible()
     finally:
         window.close()
 
