@@ -92,6 +92,46 @@ def save_voice(voice: DesignedVoice, path: Path | None = None) -> None:
     )
 
 
+def _write(voices: list[DesignedVoice], path: Path) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(
+        json.dumps([v.__dict__ for v in voices], ensure_ascii=False, indent=2), encoding="utf-8"
+    )
+
+
+def rename_voice(voice_id: str, name: str, path: Path | None = None) -> bool:
+    path = path or _store_path()
+    name = " ".join(name.split())[:60]
+    voices = load_voices(path)
+    if not name or not any(v.id == voice_id for v in voices):
+        return False
+    _write(
+        [DesignedVoice(v.id, name, v.description) if v.id == voice_id else v for v in voices], path
+    )
+    return True
+
+
+def forget_voice(voice_id: str, path: Path | None = None) -> None:
+    path = path or _store_path()
+    _write([v for v in load_voices(path) if v.id != voice_id], path)
+
+
+def delete_voice(key: str, voice_id: str) -> None:
+    """Supprime la voix chez Google (déjà absente : pas grave)."""
+    import httpx
+
+    if not is_designed(voice_id) or "/" in voice_id:
+        return
+    try:
+        response = httpx.delete(
+            f"{VOICES_URL}/{voice_id}", headers={"x-goog-api-key": key}, timeout=30
+        )
+    except httpx.HTTPError as exc:
+        raise AudioError("Suppression : Gemini injoignable.", detail=repr(exc)) from exc
+    if response.status_code not in (200, 204, 404):
+        _check(response, "Suppression de la voix")
+
+
 def voice_name(voice_id: str, path: Path | None = None) -> str:
     return next((v.name for v in load_voices(path) if v.id == voice_id), voice_id)
 

@@ -158,3 +158,67 @@ def test_blocked_sentence_uses_backup_voice_without_pause(monkeypatch):
     )
     assert len(synth("phrase suivante")) == 4  # pas de pause : Gemini reprend tout de suite
     assert calls and backup == ["phrase refusée"]
+
+
+def test_designed_voices_get_no_sound_effect(monkeypatch):
+    from alicia.core.audio import speaker
+    from alicia.core.config import Secret, VoiceSettings
+
+    calls = []
+    monkeypatch.setattr(speaker, "with_fx", lambda *a, **k: calls.append(a) or a[0])
+    settings = VoiceSettings(
+        tts_engine="gemini",
+        gemini_voice="voice_abc",
+        gemini_key=Secret("k"),
+        voice_effect="enfant",
+        fx_pitch=2.5,
+    )
+    speaker.make_synthesizer(settings)
+    assert calls == []  # voix sur mesure : jamais d'effet sonore
+    speaker.make_synthesizer(VoiceSettings(tts_engine="gemini", gemini_voice="Puck", fx_pitch=2.5))
+    assert len(calls) == 1
+
+
+def test_rename_and_delete_designed_voices(qt_app, tmp_path, monkeypatch):
+    import httpx
+
+    from alicia.ui.main_window import MainWindow
+
+    monkeypatch.chdir(tmp_path)
+    store = tmp_path / "voix.json"
+    monkeypatch.setattr(voice_design, "_store_path", lambda: store)
+    voice_design.save_voice(voice_design.DesignedVoice("voice_a", "VIIRUS", "x"), store)
+    voice_design.save_voice(voice_design.DesignedVoice("voice_b", "VIIRUS", "y"), store)
+    deleted = []
+    monkeypatch.setattr(
+        httpx, "delete", lambda url, headers, timeout: deleted.append(url) or Response({}, 200)
+    )
+    settings = load_settings(environ={"ALICE_AI_PROVIDER": "fake", "GEMINI_API_KEY": "k"})
+    window = MainWindow(build_services(settings, demo=True))
+    try:
+        window.show_page(2)
+        window.rename_designed_voice("voice_a", "VIIRUS humain")
+        assert voice_design.voice_name("voice_a", store) == "VIIRUS humain"
+        window.change_setting("voice_choose", "gemini|voice_b")
+        window.delete_designed_voice("voice_b", confirm=False)
+        assert [v.id for v in voice_design.load_voices(store)] == ["voice_a"]
+        assert window.services.settings.voice.gemini_voice == "Puck"  # c'était la voix choisie
+        assert window.settings_page.gemini_voice_box.findData("voice_b") < 0
+        from tests.test_duo import _wait
+
+        _wait(qt_app, lambda: deleted)
+        assert deleted[0].endswith("/v1beta/voices/voice_b")
+    finally:
+        window.close()
+
+
+def test_old_effect_setting_becomes_slider_values(tmp_path):
+    from alicia.core.config import _fx
+
+    assert _fx({"voice_effect": "robot_enfant"}) == {
+        "fx_pitch": 6.0,
+        "fx_metal": 60,
+        "fx_bright": 60,
+    }
+    assert _fx({"voice_effect": "enfant", "fx_pitch": 9, "fx_metal": "x"})["fx_pitch"] == 6.0
+    assert _fx({})["fx_pitch"] == 0.0

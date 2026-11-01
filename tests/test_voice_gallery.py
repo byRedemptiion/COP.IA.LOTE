@@ -126,9 +126,11 @@ def test_edge_effect_slows_the_voice_before_raising_it(monkeypatch):
         "edge_synthesizer",
         lambda voice, rate: rates.append(rate) or (lambda t: _tone()),
     )
-    settings = VoiceSettings(tts_engine="edge", tts_rate="+0%", voice_effect="enfant")
+    settings = VoiceSettings(
+        tts_engine="edge", tts_rate="+0%", voice_effect="robot_enfant", fx_pitch=6.0
+    )
     speaker_module.make_synthesizer(settings)("x")
-    assert rates == ["-30%"]  # 2^(620/1200) ≈ 1,43 → ralentie de 30 %
+    assert rates == ["-29%"]  # 2^(6/12) ≈ 1,41 → ralentie de 29 %
 
 
 def test_gemini_gets_the_style_of_the_effect(monkeypatch):

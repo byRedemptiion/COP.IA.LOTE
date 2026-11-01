@@ -140,6 +140,14 @@ def _collapsible(title: str, body: QWidget) -> QWidget:
     return holder
 
 
+def _fx_text(key: str, value: int) -> str:
+    if key == "fx_pitch":
+        return f"{value / 2:+g} demi-ton{'s' if abs(value) > 2 else ''}" if value else "naturelle"
+    if key == "fx_bright":
+        return "neutre" if value == 50 else f"{value} %"
+    return f"{value} %" if value else "aucun"
+
+
 def _muted(text: str) -> QLabel:
     label = QLabel(text)
     label.setObjectName("muted")
@@ -546,31 +554,6 @@ class SettingsPage(QWidget):
             3,
         )
         self.output_box = QComboBox()
-        self.voice_key_provider = QComboBox()
-        self.voice_key_provider.addItem("Gemini", "gemini")
-        self.voice_key_provider.addItem("ChatGPT (OpenAI)", "openai")
-        self.voice_key_input = QLineEdit()
-        self.voice_key_input.setEchoMode(QLineEdit.EchoMode.Password)
-        self.voice_key_input.setPlaceholderText("colle ici une clé utilisée seulement pour la voix")
-        save_key = QPushButton("Enregistrer")
-        save_key.clicked.connect(self._send_voice_key)
-        remove_key = QPushButton("Retirer")
-        remove_key.setObjectName("ghost")
-        remove_key.clicked.connect(
-            lambda: self.voice_key.emit(self.voice_key_provider.currentData(), "")
-        )
-        key_row = QHBoxLayout()
-        key_row.addWidget(self.voice_key_provider)
-        key_row.addWidget(self.voice_key_input, 1)
-        key_row.addWidget(save_key)
-        key_row.addWidget(remove_key)
-        grid.addWidget(QLabel("Clé voix"), 9, 0)
-        grid.addLayout(key_row, 9, 1, 1, 2)
-        self.voice_key_state = _muted(
-            "Facultatif : une clé à part pour la voix (ex. tu réfléchis avec ChatGPT et tu "
-            "parles avec une voix Gemini). Sans elle, la voix utilise la clé de ton IA."
-        )
-        grid.addWidget(self.voice_key_state, 10, 1, 1, 2)
         grid.addWidget(QLabel("Sortie"), 5, 0)
         grid.addWidget(self.output_box, 5, 1, 1, 2)
         self.voice_test = QPushButton("Tester la voix")
@@ -893,6 +876,31 @@ class SettingsPage(QWidget):
             1,
             2,
         )
+        self.voice_key_provider = QComboBox()
+        self.voice_key_provider.addItem("Gemini", "gemini")
+        self.voice_key_provider.addItem("ChatGPT (OpenAI)", "openai")
+        self.voice_key_input = QLineEdit()
+        self.voice_key_input.setEchoMode(QLineEdit.EchoMode.Password)
+        self.voice_key_input.setPlaceholderText("colle ici une clé utilisée seulement pour la voix")
+        save_key = QPushButton("Enregistrer")
+        save_key.clicked.connect(self._send_voice_key)
+        remove_key = QPushButton("Retirer")
+        remove_key.setObjectName("ghost")
+        remove_key.clicked.connect(
+            lambda: self.voice_key.emit(self.voice_key_provider.currentData(), "")
+        )
+        key_row = QHBoxLayout()
+        key_row.addWidget(self.voice_key_provider)
+        key_row.addWidget(self.voice_key_input, 1)
+        key_row.addWidget(save_key)
+        key_row.addWidget(remove_key)
+        grid.addWidget(QLabel("🔊 Clé voix"), 2, 0)
+        grid.addLayout(key_row, 2, 1, 1, 2)
+        self.voice_key_state = _muted(
+            "Facultatif : une clé à part pour la voix (ex. tu réfléchis avec ChatGPT et tu "
+            "parles avec une voix Gemini). Sans elle, la voix utilise la clé de ton IA."
+        )
+        grid.addWidget(self.voice_key_state, 3, 1, 1, 2)
         advanced_box.addWidget(keys_panel)
         advanced_box.addWidget(self._ai_ollama)
         self._tab_layouts["ai"].addWidget(_collapsible("Avancé : clés API et Ollama", advanced_ai))
@@ -1169,6 +1177,27 @@ class SettingsPage(QWidget):
 
     # --- valeurs --------------------------------------------------------------------------------
 
+    def _emit_fx(self, key: str, value: int) -> None:
+        if not self._fx_loading:
+            self._emit(key, value / 2 if key == "fx_pitch" else value)
+
+    _fx_loading = False
+
+    def load_fx(self, voice: VoiceSettings) -> None:
+        """Place les curseurs d'effet (sans rien déclencher)."""
+        self._fx_loading = True
+        try:
+            for key, value in (
+                ("fx_pitch", round(voice.fx_pitch * 2)),
+                ("fx_metal", voice.fx_metal),
+                ("fx_bright", voice.fx_bright),
+            ):
+                slider, label = self.fx_sliders[key]
+                slider.setValue(int(value))
+                label.setText(_fx_text(key, int(value)))
+        finally:
+            self._fx_loading = False
+
     def _send_voice_key(self) -> None:
         key = self.voice_key_input.text().strip()
         if key:
@@ -1227,16 +1256,42 @@ class SettingsPage(QWidget):
         )
         grid.addWidget(QLabel("Effet"), 2, 0)
         grid.addWidget(self.effect_box, 2, 1, 1, 3)
-        grid.addWidget(
+        fx = QWidget()
+        fx_grid = QGridLayout(fx)
+        fx_grid.setContentsMargins(0, 0, 0, 0)
+        self.fx_sliders: dict[str, tuple[QSlider, QLabel]] = {}
+        for row, (key, label, low, high) in enumerate(
+            (
+                ("fx_pitch", "Hauteur", -12, 12),  # demi-tons × 2 (pas de 0,5)
+                ("fx_metal", "Métal / robot", 0, 100),
+                ("fx_bright", "Clarté", 0, 100),
+            )
+        ):
+            slider = QSlider(Qt.Orientation.Horizontal)
+            slider.setRange(low, high)
+            value = _muted("")
+            slider.valueChanged.connect(lambda v, k=key, lab=value: lab.setText(_fx_text(k, v)))
+            slider.sliderReleased.connect(lambda k=key, sl=slider: self._emit_fx(k, sl.value()))
+            slider.valueChanged.connect(
+                lambda v, k=key, sl=slider: None if sl.isSliderDown() else self._emit_fx(k, v)
+            )
+            fx_grid.addWidget(QLabel(label), row, 0)
+            fx_grid.addWidget(slider, row, 1)
+            fx_grid.addWidget(value, row, 2)
+            self.fx_sliders[key] = (slider, value)
+        fx_grid.setColumnStretch(1, 1)
+        grid.addWidget(fx, 3, 1, 1, 3)
+        fx_grid.addWidget(
             _muted(
                 "L'effet s'ajoute à la voix choisie (Edge, Gemini, OpenAI, Kokoro) et s'entend "
                 "aussi dans les écoutes d'essai. Avec Gemini et OpenAI, la voix reçoit en plus la "
-                "consigne de jouer un enfant ou un robot."
+                "consigne de jouer un enfant ou un robot. Les curseurs ajustent l'effet ; "
+                "les voix sur mesure n'ont jamais d'effet sonore."
             ),
             3,
             0,
             1,
-            4,
+            3,
         )
         self.voice_style = QLineEdit()
         self.voice_style.setPlaceholderText(
@@ -1306,8 +1361,8 @@ class SettingsPage(QWidget):
                 "Décris la voix en une ou deux phrases (âge, timbre, énergie, accent) : Gemini "
                 "la crée une fois, tu écoutes l'extrait, puis tu la choisis. Elle reste dans ton "
                 "projet Google un an après sa dernière utilisation. Si Gemini ne répond pas, la "
-                "voix du profil prend le relais. Astuce : avec une voix déjà jeune, préfère "
-                "l'effet « Petit robot » ou « Aucun »."
+                "voix du profil prend le relais. Aucun effet sonore ne s'y ajoute : elle est "
+                "jouée telle que Google l'a créée. ✏️ renomme, ✕ supprime."
             ),
             row + 1,
             0,
@@ -1369,13 +1424,28 @@ class SettingsPage(QWidget):
             choose = QPushButton("Choisir")
             choose.setObjectName("ghost")
             choose.clicked.connect(lambda _=False, k=key: self._emit("voice_choose", k))
-            self.designed_grid.addWidget(label, index, 0, 1, 2)
-            self.designed_grid.addWidget(listen, index, 2)
-            self.designed_grid.addWidget(choose, index, 3)
+            rename = QPushButton("✏️")
+            rename.setToolTip("Renommer cette voix")
+            rename.setFixedWidth(40)
+            rename.clicked.connect(lambda _=False, v=voice.id: self._emit("voice_rename", v))
+            delete = QPushButton("✕")
+            delete.setToolTip("Supprimer cette voix (aussi chez Google)")
+            delete.setFixedWidth(40)
+            delete.clicked.connect(lambda _=False, v=voice.id: self._emit("voice_delete", v))
+            self.designed_grid.addWidget(label, index, 0)
+            self.designed_grid.addWidget(listen, index, 1)
+            self.designed_grid.addWidget(choose, index, 2)
+            self.designed_grid.addWidget(rename, index, 3)
+            self.designed_grid.addWidget(delete, index, 4)
             self.gallery_buttons[key] = choose
         # Aussi dans le choix de voix du profil (Moteur : Gemini → Voix)
         box = self.gemini_voice_box
         box.blockSignals(True)
+        known = {v.id for v in load_voices()}
+        for index in reversed(range(box.count())):  # voix supprimées : retirées de la liste
+            data = str(box.itemData(index) or "")
+            if data.startswith("voice_") and data not in known:
+                box.removeItem(index)
         for voice in load_voices():
             index = box.findData(voice.id)
             if index < 0:
@@ -1447,6 +1517,7 @@ class SettingsPage(QWidget):
             )
             self.effect_box.setCurrentIndex(max(0, self.effect_box.findData(voice.voice_effect)))
             self.voice_style.setText(voice.voice_style)
+            self.load_fx(voice)
             self.show_voice_keys(voice.own_keys)
             self.volume.setValue(voice.volume)
             self.volume_label.setText(f"{voice.volume} %")

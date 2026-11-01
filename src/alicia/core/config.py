@@ -189,6 +189,9 @@ class VoiceSettings:
     voice_effect: str = ""  # "" | enfant | robot | gros_robot (sur Edge, Gemini, OpenAI, Kokoro)
     voice_style: str = ""  # consigne de jeu libre pour ChatGPT et Gemini (« petite robote… »)
     own_keys: tuple[str, ...] = ()  # fournisseurs avec une clé dédiée à la voix (gemini, openai)
+    fx_pitch: float = 0.0  # effet : hauteur en demi-tons (-6 à +6)
+    fx_metal: int = 0  # effet : timbre métallique de robot (0-100 %)
+    fx_bright: int = 50  # effet : clarté (0-100 %, 50 = neutre)
     gemini_tts_model: str = "gemini-3.1-flash-tts-preview"
     gemini_key: Secret = field(default_factory=lambda: Secret(None))  # même clé que l'IA Gemini
 
@@ -375,6 +378,24 @@ def _choice(section: dict[str, Any], key: str, default: str, allowed: tuple[str,
             f"Réglage « {key} » invalide : « {value} » (choix : {', '.join(allowed)})."
         )
     return value
+
+
+def _fx(voice: dict) -> dict:  # type: ignore[type-arg]
+    """Réglages d'effet ; sans réglage enregistré, ceux de l'effet choisi (anciennes versions)."""
+    from alicia.core.audio.speaker import FX_PRESETS
+
+    pitch, metal, bright = FX_PRESETS.get(str(voice.get("voice_effect", "")), (0.0, 0, 50))
+    try:
+        pitch = float(voice.get("fx_pitch", pitch))
+        metal = int(voice.get("fx_metal", metal))
+        bright = int(voice.get("fx_bright", bright))
+    except (TypeError, ValueError):
+        pass
+    return {
+        "fx_pitch": max(-6.0, min(6.0, round(pitch * 2) / 2)),
+        "fx_metal": max(0, min(100, metal)),
+        "fx_bright": max(0, min(100, bright)),
+    }
 
 
 def load_settings(
@@ -585,6 +606,7 @@ def load_settings(
                 ("", "enfant", "robot", "robot_enfant", "robote", "gros_robot"),
             ),
             voice_style=" ".join(str(voice.get("voice_style", "")).split())[:300],
+            **_fx(voice),
             gemini_tts_model=str(
                 voice.get("gemini_tts_model", "gemini-3.1-flash-tts-preview")
             ).strip(),

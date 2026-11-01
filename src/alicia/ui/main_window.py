@@ -868,6 +868,9 @@ class MainWindow(QMainWindow):
                 "openai_voice",
                 "voice_effect",
                 "voice_style",
+                "fx_pitch",
+                "fx_metal",
+                "fx_bright",
             } & changes.keys():
                 speaker.synthesizer = make_synthesizer(voice)
                 speaker.warm_up_async()
@@ -938,7 +941,17 @@ class MainWindow(QMainWindow):
             if volume != self.services.settings.voice.volume:
                 self._update_voice(volume=volume)
         elif key == "voice_effect":
-            self._update_voice(voice_effect=str(value or ""))
+            from alicia.core.audio.speaker import FX_PRESETS
+
+            effect = str(value or "")
+            pitch, metal, bright = FX_PRESETS.get(effect, (0.0, 0, 50))
+            self._update_voice(
+                voice_effect=effect, fx_pitch=pitch, fx_metal=metal, fx_bright=bright
+            )
+            self.settings_page.load_fx(self.services.settings.voice)
+        elif key in ("fx_pitch", "fx_metal", "fx_bright"):
+            number = float(value) if key == "fx_pitch" else int(value)  # type: ignore[call-overload,arg-type]
+            self._update_voice(**{key: number})
         elif key == "voice_style":
             self._update_voice(voice_style=" ".join(str(value or "").split())[:300])
         elif key == "voice_preview":
@@ -951,6 +964,10 @@ class MainWindow(QMainWindow):
             self._update_voice(tts_engine=engine, **{field: name})
             self._load_settings_page()
             self._notify(f"Voix choisie : {voice_name(name)}")
+        elif key == "voice_rename":
+            self.rename_designed_voice(str(value))
+        elif key == "voice_delete":
+            self.delete_designed_voice(str(value))
         elif key == "voice_design":
             name, description = value  # type: ignore[misc]
             self.design_voice(str(name), str(description))
@@ -1322,6 +1339,56 @@ class MainWindow(QMainWindow):
             if key
             else f"Clé voix {name} retirée : la voix reprend la clé de ton IA."
         )
+
+    def rename_designed_voice(self, voice_id: str, name: str | None = None) -> None:
+        from alicia.core.audio import voice_design
+
+        if name is None:
+            from PySide6.QtWidgets import QInputDialog
+
+            name, ok = QInputDialog.getText(
+                self, "Renommer la voix", "Nouveau nom :", text=voice_design.voice_name(voice_id)
+            )
+            if not ok:
+                return
+        if voice_design.rename_voice(voice_id, name):
+            self.settings_page.fill_designed_voices()
+            self._load_settings_page()
+            self.settings_page.design_state.setText(f"✓ Voix renommée : {name.strip()}")
+
+    def delete_designed_voice(self, voice_id: str, confirm: bool = True) -> None:
+        """Supprime une voix sur mesure (liste + projet Google), après confirmation."""
+        from alicia.core.audio import voice_design
+
+        name = voice_design.voice_name(voice_id)
+        if confirm:
+            from PySide6.QtWidgets import QMessageBox
+
+            answer = QMessageBox.question(
+                self,
+                "Supprimer la voix",
+                f"Supprimer la voix « {name} » ? Elle sera aussi effacée de ton projet Google.",
+            )
+            if answer != QMessageBox.StandardButton.Yes:
+                return
+        voice_design.forget_voice(voice_id)
+        if self.services.settings.voice.gemini_voice == voice_id:
+            self._update_voice(gemini_voice="Puck")  # c'était la voix choisie
+            self._notify(f"« {name} » supprimée : voix Gemini Puck en attendant.")
+        self.settings_page.fill_designed_voices()
+        self._load_settings_page()
+        self.settings_page.design_state.setText(f"✓ « {name} » supprimée.")
+        key = self.services.settings.voice.gemini_key
+        if key:
+
+            def failed(exc: Exception) -> None:
+                log.warning("Suppression chez Google : %s", getattr(exc, "detail", exc))
+
+            self._background(
+                lambda: voice_design.delete_voice(key.get() or "", voice_id),
+                lambda _v: log.info("Voix %s supprimée chez Google", voice_id),
+                failed,
+            )
 
     def design_voice(self, name: str, description: str) -> None:
         """Crée une voix sur mesure chez Gemini, l'enregistre et fait écouter l'extrait."""

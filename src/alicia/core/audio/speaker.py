@@ -16,7 +16,6 @@ import time
 from collections import deque
 from collections.abc import Callable
 from concurrent.futures import Future, ThreadPoolExecutor
-from dataclasses import replace
 
 import numpy as np
 
@@ -438,28 +437,59 @@ def time_stretch(samples: np.ndarray, rate: float, n_fft: int = 1024) -> np.ndar
     return out / np.maximum(norm, 1e-3)
 
 
-def with_effect(base: Synthesizer, effect: str, *, pre_slowed: bool = False) -> Synthesizer:
-    """Applique un effet (enfant, robot…) à n'importe quelle voix.
+# Réglages de chaque effet : (hauteur en demi-tons, métal en %, clarté en %). Ce ne sont
+# que des points de départ : les curseurs Hauteur / Métal / Clarté les ajustent.
+# « Enfant » monte peu : au-delà de ~3 demi-tons, le calcul laisse un grain métallique.
+FX_PRESETS: dict[str, tuple[float, int, int]] = {
+    "": (0.0, 0, 50),
+    "enfant": (2.5, 0, 65),
+    "robot": (2.0, 100, 40),
+    "robot_enfant": (6.0, 60, 60),
+    "robote": (3.0, 45, 55),
+    "gros_robot": (-3.5, 100, 10),
+}
+
+
+def fx_neutral(pitch: float, metal: int, bright: int) -> bool:
+    return abs(pitch) < 0.01 and metal <= 0 and bright == 50
+
+
+def with_fx(
+    base: Synthesizer, pitch: float, metal: int, bright: int, *, pre_slowed: bool = False
+) -> Synthesizer:
+    """Hauteur (demi-tons), métal (0-100 %) et clarté (0-100 %, 50 = neutre) sur une voix.
 
     ``pre_slowed`` : la voix est déjà générée ralentie du bon facteur (Edge sait le faire,
     c'est plus propre) ; sinon on l'étire d'abord sans changer sa hauteur."""
-    if effect not in VOICE_EFFECTS:
+    if fx_neutral(pitch, metal, bright):
         return base
-    cents, highpass, presence, metallic, _ = VOICE_EFFECTS[effect]
-    ratio = 2 ** (cents / 1200)
+    ratio = 2 ** (pitch / 12)
+    bright = max(0, min(100, bright))
+    highpass, presence = 80.0 + bright * 3.0, 2500.0 + bright * 30.0
 
     def synthesize(text: str) -> np.ndarray:
         samples = base(text)
-        if not pre_slowed:
+        if not pre_slowed and abs(pitch) >= 0.01:
             samples = time_stretch(samples, 1 / ratio)
         return robot_voice(
-            samples, ratio, highpass_hz=highpass, presence_hz=presence, metallic=metallic
+            samples,
+            ratio,
+            highpass_hz=highpass,
+            presence_hz=presence,
+            metallic=max(0, min(100, metal)) / 100,
         )
 
     warm = getattr(base, "warm_up", None)
     if warm is not None:
         synthesize.warm_up = warm  # type: ignore[attr-defined]
     return synthesize
+
+
+def with_effect(base: Synthesizer, effect: str, *, pre_slowed: bool = False) -> Synthesizer:
+    """Applique un effet tout fait (enfant, robot…) avec ses réglages de départ."""
+    if effect not in FX_PRESETS or not effect:
+        return base
+    return with_fx(base, *FX_PRESETS[effect], pre_slowed=pre_slowed)
 
 
 def _slowed_rate(rate: str, ratio: float) -> str:
@@ -471,19 +501,24 @@ def _slowed_rate(rate: str, ratio: float) -> str:
 
 
 def make_synthesizer(settings: VoiceSettings) -> Synthesizer:
-    effect = settings.voice_effect if settings.voice_effect in VOICE_EFFECTS else ""
-    if effect and settings.tts_engine in ("edge", "gemini", "openai", "kokoro"):
+    pitch, metal, bright = settings.fx_pitch, settings.fx_metal, settings.fx_bright
+    designed = settings.tts_engine == "gemini" and settings.gemini_voice.startswith("voice_")
+    if (
+        not designed  # voix sur mesure : déjà faite comme on la veut, aucun effet sonore
+        and not fx_neutral(pitch, metal, bright)
+        and settings.tts_engine in ("edge", "gemini", "openai", "kokoro")
+    ):
         if settings.tts_engine == "edge":
-            ratio = 2 ** (VOICE_EFFECTS[effect][0] / 1200)
+            ratio = 2 ** (pitch / 12)
             base = edge_synthesizer(settings.tts_voice, _slowed_rate(settings.tts_rate, ratio))
-            return with_effect(base, effect, pre_slowed=True)
+            return with_fx(base, pitch, metal, bright, pre_slowed=True)
         if settings.tts_engine == "gemini":
-            base = gemini_synthesizer(settings)  # garde l'effet : il devient une consigne de jeu
+            base = gemini_synthesizer(settings)  # l'effet choisi devient aussi une consigne
         elif settings.tts_engine == "openai":
             base = openai_synthesizer(settings)
         else:
-            base = make_synthesizer(replace(settings, voice_effect=""))
-        return with_effect(base, effect)
+            base = kokoro_synthesizer(settings.kokoro_voice, settings.kokoro_speed)
+        return with_fx(base, pitch, metal, bright)
     if settings.tts_engine == "veris":
         return veris_synthesizer(settings.kokoro_speed)
     if settings.tts_engine == "voixc":
