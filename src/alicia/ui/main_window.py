@@ -3314,9 +3314,24 @@ class MainWindow(QMainWindow):
             return "quelqu'un parle déjà"
         return None
 
+    def _copilot_note(self, why: str) -> None:
+        """Compte pourquoi il se tait ; un résumé lisible dans le journal tous les 10 coups d'œil."""
+        from collections import Counter
+
+        counts = getattr(self, "_copilot_counts", None)
+        if counts is None:
+            counts = self._copilot_counts = Counter()
+        counts[why.split(" (")[0]] += 1
+        if sum(counts.values()) >= 10:
+            summary = ", ".join(f"{reason} ×{n}" for reason, n in counts.most_common(4))
+            log.info("Copilote : 10 derniers coups d'œil — %s", summary)
+            counts.clear()
+
     def _copilot_tick(self) -> None:
         if not self.services.settings.copilot.enabled:
             return
+        if time.monotonic() < getattr(self, "_copilot_pause_until", 0.0):
+            return  # en pause après des erreurs (clé refusée, quota…)
         why = self._copilot_skip()
         if why:
             log.debug("Copilote : pas de coup d'œil (%s)", why)
@@ -3347,9 +3362,11 @@ class MainWindow(QMainWindow):
 
         def done(value) -> None:  # type: ignore[no-untyped-def]
             self._copilot_running = False
+            self._copilot_fails = 0
             decision, speak, why = value
             if decision is None and why:
                 log.debug("Copilote : %s", why)
+            self._copilot_note("parle" if speak else why or "se tait")
             if speak and decision is not None and self.services.settings.copilot.enabled:
                 self._copilot_speak(decision.message, decision.importance)
 
@@ -3357,8 +3374,36 @@ class MainWindow(QMainWindow):
             self._copilot_running = False
             detail = exc.detail if isinstance(exc, AliciaError) else repr(exc)
             log.warning("Copilote : coup d'œil impossible (%s)", detail)
+            self._copilot_failed(exc)
 
         self._background(look, done, failed)
+
+    def _copilot_failed(self, exc: Exception) -> None:
+        """Erreur de l'IA pendant un coup d'œil : le dire une fois, et faire une pause."""
+        fails = getattr(self, "_copilot_fails", 0) + 1
+        self._copilot_fails = fails
+        provider = {"gemini": "Gemini", "openai": "ChatGPT", "ollama": "Ollama"}.get(
+            self.services.model.provider, self.services.model.provider
+        )
+        kind = exc.kind if isinstance(exc, ProviderError) else None
+        if kind is ProviderErrorKind.AUTH:
+            pause, text = (
+                300.0,
+                (
+                    f"⚠ Copilote en pause : la clé {provider} est refusée. "
+                    "Réglages → IA → Avancé → Gérer mes clés."
+                ),
+            )
+        elif kind is ProviderErrorKind.RATE_LIMIT:
+            pause, text = 120.0, f"⚠ Copilote en pause 2 min : quota {provider} atteint."
+        elif fails >= 3:
+            pause, text = 60.0, f"⚠ Copilote en pause 1 min : {provider} ne répond pas."
+        else:
+            return
+        self._copilot_pause_until = time.monotonic() + pause
+        log.warning("Copilote : pause de %.0f s (%s)", pause, text)
+        if fails == 1 or kind is not ProviderErrorKind.AUTH or fails % 5 == 0:
+            self._notify(text)
 
     def _copilot_speak(self, message: str, importance: int) -> None:
         if self._copilot_skip() not in (None, "coup d'œil précédent pas fini"):

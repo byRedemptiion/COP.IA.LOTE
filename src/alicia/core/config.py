@@ -217,7 +217,7 @@ class ActionSettings:
 
 @dataclass(frozen=True)
 class UpdateSettings:
-    repo: str = "byRedemptiion/COP_IA_LOTE"
+    repo: str = "byRedemptiion/COP.IA.LOTE"
     branch: str = "alice-v0.3"
     check_on_start: bool = True
     token: Secret = field(default_factory=lambda: Secret(None))

@@ -82,7 +82,7 @@ orb_size = 210               # diamètre du rond, en pixels (120 à 600)
 [update]
 # Bouton « MAJ » : ALICIA se met à jour depuis ce dépôt GitHub et cette branche.
 # Dépôt privé : ajoute ALICIA_GITHUB_TOKEN=... (jeton en lecture seule) dans .env.
-repo = "byRedemptiion/COP_IA_LOTE"
+repo = "byRedemptiion/COP.IA.LOTE"
 branch = "alice-v0.3"
 check_on_start = true        # vérifie au lancement (discret) et signale une nouvelle version
 

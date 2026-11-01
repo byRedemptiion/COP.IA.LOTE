@@ -8,7 +8,7 @@ COP'IA'LOTE place une personnalité IA à côté du joueur : **ALICIA** ou **VII
 
 ## Installer
 
-**Télécharge [ALICIA-Setup.exe](https://github.com/byRedemptiion/COP_IA_LOTE/releases/download/installer-latest/ALICIA-Setup.exe)** et double-clique dessus. C'est ce fichier qu'on partage.
+**Télécharge [ALICIA-Setup.exe](https://github.com/byRedemptiion/COP.IA.LOTE/releases/download/installer-latest/ALICIA-Setup.exe)** et double-clique dessus. C'est ce fichier qu'on partage.
 
 1. Choisis ton IA : **Gemini** (recommandé, gratuit pour commencer), **ChatGPT** (API OpenAI, payante à l'usage : crédit prépayé, l'abonnement ChatGPT ne compte pas), **Ollama** (IA locale, avancé : ALICIA le démarre et télécharge son modèle toute seule) ou « plus tard ».
 2. Pour Gemini, le bouton **« Ouvrir la page Gemini pour créer ma clé »** ouvre la page Google : *Create API key*, copie, colle. La clé reste sur ton PC (`%APPDATA%\Alicia\.env`).

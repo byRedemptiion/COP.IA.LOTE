@@ -206,3 +206,47 @@ def test_copilot_page_presets_and_kinds(qt_app, tmp_path, monkeypatch):
         assert "trashtalk" in reloaded.kinds and reloaded.trash == "leger"
     finally:
         window.close()
+
+
+def test_copilot_says_when_the_key_is_refused_and_pauses(qt_app, tmp_path, monkeypatch):
+    from alicia.core.ai.providers.fake import FakeModel
+    from alicia.core.errors import ProviderError, ProviderErrorKind
+    from alicia.ui.main_window import MainWindow
+    from tests.test_duo import _wait
+
+    monkeypatch.chdir(tmp_path)
+    model = FakeModel(fail_with=ProviderError(ProviderErrorKind.AUTH, "API key not valid"))
+    window = MainWindow(
+        build_services(load_settings(environ={"ALICE_AI_PROVIDER": "fake"}), demo=True, model=model)
+    )
+    notes = []
+    window._notify = notes.append
+    window._live_frame = lambda max_age_s=3.0: _frame()
+    try:
+        window.set_copilot(True, save=False)
+        window._copilot_tick()
+        _wait(qt_app, lambda: not window._copilot_running and notes)
+        assert notes and "clé" in notes[0] and "refusée" in notes[0]
+        count = len(model.requests)
+        window._copilot_tick()  # en pause : pas de nouvel appel
+        assert len(model.requests) == count
+    finally:
+        window.close()
+
+
+def test_copilot_logs_why_it_stays_quiet(qt_app, tmp_path, monkeypatch, caplog):
+    import logging
+
+    from alicia.ui.main_window import MainWindow
+
+    monkeypatch.chdir(tmp_path)
+    window = MainWindow(
+        build_services(load_settings(environ={"ALICE_AI_PROVIDER": "fake"}), demo=True)
+    )
+    try:
+        with caplog.at_level(logging.INFO, logger="alicia"):
+            for _ in range(10):
+                window._copilot_note("importance 5 < seuil 7")
+        assert "10 derniers coups d'œil — importance 5 < seuil 7 ×10" in caplog.text
+    finally:
+        window.close()
