@@ -93,12 +93,11 @@ def test_old_ollama_deep_model_moves_to_the_ollama_section(tmp_path):
 
 
 def test_tester_makes_a_real_call(qt_app, tmp_path, monkeypatch):
-    from tests.test_duo import _wait
-
     from alicia.app import build_services
     from alicia.core.ai.providers.fake import FakeModel
     from alicia.core.errors import ProviderError, ProviderErrorKind
     from alicia.ui.main_window import MainWindow
+    from tests.test_duo import _wait
 
     monkeypatch.chdir(tmp_path)
     model = FakeModel()
