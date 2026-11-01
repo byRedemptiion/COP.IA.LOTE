@@ -925,11 +925,16 @@ class MainWindow(QMainWindow):
         elif key == "voice_preview":
             self.preview_voice(str(value))
         elif key == "voice_choose":
+            from alicia.core.audio.voice_design import voice_name
+
             engine, _, name = str(value).partition("|")
             field = "gemini_voice" if engine == "gemini" else "tts_voice"
             self._update_voice(tts_engine=engine, **{field: name})
             self._load_settings_page()
-            self._notify(f"Voix choisie : {name}")
+            self._notify(f"Voix choisie : {voice_name(name)}")
+        elif key == "voice_design":
+            name, description = value  # type: ignore[misc]
+            self.design_voice(str(name), str(description))
         elif key == "speed":
             percent = int(value)  # type: ignore[call-overload]
             self._update_voice(tts_rate=f"{percent:+d}%", kokoro_speed=round(1 + percent / 100, 2))
@@ -1214,14 +1219,50 @@ class MainWindow(QMainWindow):
             f"Salut, moi c'est {current_persona().name} ! Attention, un ennemi arrive sur ta "
             "gauche : recule et soigne-toi, je surveille la carte."
         )
+        from alicia.core.audio.voice_design import voice_name
+
         log.info("Écoute d'essai : voix %s (%s)", name, engine)
-        self.settings_page.gallery_state.setText(f"▶ {name}…")
+        self.settings_page.gallery_state.setText(f"▶ {voice_name(name)}…")
         if speaker is None or not speaker.speak(text, make_synthesizer(trial)):
             self.settings_page.gallery_state.setText(
                 "⚠ Voix indisponible : vérifie la sortie audio."
             )
             return
         self.stop_voice_button.setEnabled(True)
+
+    def design_voice(self, name: str, description: str) -> None:
+        """Crée une voix sur mesure chez Gemini, l'enregistre et fait écouter l'extrait."""
+        from alicia.core.audio import voice_design
+
+        page = self.settings_page
+        key = self.services.settings.voice.gemini_key
+        if not key:
+            page.design_state.setText("⚠ Il faut une clé Gemini : IA → Avancé → Gérer mes clés.")
+            return
+        page.design_button.setEnabled(False)
+        page.design_state.setText("✨ Gemini crée la voix… (jusqu'à une minute)")
+
+        def done(value) -> None:  # type: ignore[no-untyped-def]
+            voice, sample = value
+            voice_design.save_voice(voice)
+            page.design_button.setEnabled(True)
+            page.fill_designed_voices()
+            page.design_state.setText(f"✓ « {voice.name} » créée : écoute-la, puis Choisir.")
+            speaker = self.services.speaker
+            if len(sample) and speaker is not None:
+                speaker.speak("extrait", lambda _text: sample)
+                self.stop_voice_button.setEnabled(True)
+
+        def failed(exc: Exception) -> None:
+            page.design_button.setEnabled(True)
+            message = exc.user_message if isinstance(exc, AliciaError) else repr(exc)
+            detail = exc.detail if isinstance(exc, AliciaError) else repr(exc)
+            log.warning("Voix sur mesure : %s", detail)
+            page.design_state.setText(f"⚠ {message}")
+
+        self._background(
+            lambda: voice_design.create_voice(key.get() or "", name, description), done, failed
+        )
 
     def test_voice(self) -> None:
         speaker = self.services.speaker

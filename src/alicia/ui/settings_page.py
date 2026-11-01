@@ -17,6 +17,7 @@ from PySide6.QtWidgets import (
     QHBoxLayout,
     QLabel,
     QLineEdit,
+    QPlainTextEdit,
     QProgressBar,
     QPushButton,
     QScrollArea,
@@ -1194,9 +1195,90 @@ class SettingsPage(QWidget):
                 grid.addWidget(choose, row, 3)
                 self.gallery_buttons[key] = choose
                 row += 1
+        row = self._designed_voices(grid, row)
         self.gallery_state = _muted("")
         grid.addWidget(self.gallery_state, row, 0, 1, 4)
         return panel
+
+    def _designed_voices(self, grid: QGridLayout, row: int) -> int:
+        """Voix sur mesure Gemini : on la décrit, Gemini la crée, on l'écoute, on la choisit."""
+        from alicia.core.audio.voice_design import PRESETS
+
+        header = QLabel("✨ VOIX SUR MESURE (GEMINI 3.8)")
+        header.setObjectName("sectionTitle")
+        grid.addWidget(header, row, 0, 1, 4)
+        grid.addWidget(
+            _muted(
+                "Décris la voix en une ou deux phrases (âge, timbre, énergie, accent) : Gemini "
+                "la crée une fois, tu écoutes l'extrait, puis tu la choisis. Elle reste dans ton "
+                "projet Google un an après sa dernière utilisation. Si Gemini ne répond pas, la "
+                "voix du profil prend le relais. Astuce : avec une voix déjà jeune, préfère "
+                "l'effet « Petit robot » ou « Aucun »."
+            ),
+            row + 1,
+            0,
+            1,
+            4,
+        )
+        self.design_preset = QComboBox()
+        for label in PRESETS:
+            self.design_preset.addItem(label, label)
+        self.design_name = QLineEdit()
+        self.design_name.setPlaceholderText("Nom, ex. VIIRUS garçon")
+        self.design_text = QPlainTextEdit()
+        self.design_text.setObjectName("field")
+        self.design_text.setFixedHeight(70)
+
+        def preset(_i: int = 0) -> None:
+            label = self.design_preset.currentData()
+            self.design_text.setPlainText(PRESETS.get(label, ""))
+            self.design_name.setText(str(label).split(" — ")[0] + " (sur mesure)")
+
+        self.design_preset.currentIndexChanged.connect(preset)
+        preset()
+        grid.addWidget(QLabel("Modèle"), row + 2, 0)
+        grid.addWidget(self.design_preset, row + 2, 1)
+        grid.addWidget(self.design_name, row + 2, 2, 1, 2)
+        grid.addWidget(self.design_text, row + 3, 0, 1, 4)
+        self.design_button = QPushButton("✨ Créer et écouter")
+        self.design_button.clicked.connect(
+            lambda: self._emit(
+                "voice_design", (self.design_name.text(), self.design_text.toPlainText())
+            )
+        )
+        grid.addWidget(self.design_button, row + 4, 0, 1, 2)
+        self.design_state = _muted("")
+        grid.addWidget(self.design_state, row + 4, 2, 1, 2)
+        holder = QWidget()
+        self.designed_grid = QGridLayout(holder)
+        self.designed_grid.setContentsMargins(0, 0, 0, 0)
+        grid.addWidget(holder, row + 5, 0, 1, 4)
+        self.fill_designed_voices()
+        return row + 6
+
+    def fill_designed_voices(self) -> None:
+        """(Re)liste les voix sur mesure déjà créées."""
+        from alicia.core.audio.voice_design import load_voices
+
+        while self.designed_grid.count():
+            item = self.designed_grid.takeAt(0)
+            if item.widget() is not None:
+                item.widget().deleteLater()
+        for key in [k for k in self.gallery_buttons if k.startswith("gemini|voice_")]:
+            del self.gallery_buttons[key]
+        for index, voice in enumerate(load_voices()):
+            key = f"gemini|{voice.id}"
+            label = QLabel(f"✨ {voice.name}")
+            label.setToolTip(voice.description)
+            listen = QPushButton("▶ Écouter")
+            listen.clicked.connect(lambda _=False, k=key: self._emit("voice_preview", k))
+            choose = QPushButton("Choisir")
+            choose.setObjectName("ghost")
+            choose.clicked.connect(lambda _=False, k=key: self._emit("voice_choose", k))
+            self.designed_grid.addWidget(label, index, 0, 1, 2)
+            self.designed_grid.addWidget(listen, index, 2)
+            self.designed_grid.addWidget(choose, index, 3)
+            self.gallery_buttons[key] = choose
 
     def mark_chosen_voice(self, key: str) -> None:
         for name, button in self.gallery_buttons.items():
@@ -1251,7 +1333,11 @@ class SettingsPage(QWidget):
                 self.voice_box.addItem(voice.tts_voice, voice.tts_voice)
             self.voice_box.setCurrentIndex(self.voice_box.findData(voice.tts_voice))
             if self.gemini_voice_box.findData(voice.gemini_voice) < 0:
-                self.gemini_voice_box.addItem(voice.gemini_voice, voice.gemini_voice)
+                from alicia.core.audio.voice_design import voice_name
+
+                self.gemini_voice_box.addItem(
+                    f"✨ {voice_name(voice.gemini_voice)}", voice.gemini_voice
+                )
             self.gemini_voice_box.setCurrentIndex(
                 self.gemini_voice_box.findData(voice.gemini_voice)
             )

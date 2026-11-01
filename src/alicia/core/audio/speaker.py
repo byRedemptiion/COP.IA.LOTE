@@ -264,6 +264,9 @@ def gemini_synthesizer(settings: VoiceSettings) -> Synthesizer:
 
     import httpx
 
+    if settings.gemini_voice.startswith("voice_"):  # voix sur mesure (Gemini 3.8)
+        return _designed(settings)
+
     def synthesize(text: str) -> np.ndarray:
         if not settings.gemini_key:
             raise AudioError(
@@ -310,6 +313,25 @@ def gemini_synthesizer(settings: VoiceSettings) -> Synthesizer:
         return np.frombuffer(data[: len(data) - len(data) % 2], dtype=np.int16)
 
     return synthesize
+
+
+def _designed(settings: VoiceSettings) -> Synthesizer:
+    """Voix sur mesure, avec la voix du profil en secours si Gemini ne répond pas."""
+    from alicia.core.audio import voice_design
+    from alicia.core.persona import current
+
+    if current().key == "veris":
+        fallback = veris_synthesizer(settings.kokoro_speed)
+    else:
+        fallback = veris_synthesizer(settings.kokoro_speed, 1.30, 220.0, 3800.0, metallic=0.0)
+    if not settings.gemini_key:
+        return fallback
+    effect = VOICE_EFFECTS.get(settings.voice_effect)
+    style = "ton naturel et vivant de coéquipier de jeu" if effect is None else effect[4]
+    primary = voice_design.designed_synthesizer(
+        settings.gemini_key.get() or "", settings.gemini_voice, style
+    )
+    return voice_design.with_fallback(primary, fallback)
 
 
 # Effets de voix, applicables à Edge, Gemini, OpenAI et Kokoro :
