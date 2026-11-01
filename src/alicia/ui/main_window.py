@@ -1251,6 +1251,16 @@ class MainWindow(QMainWindow):
 
         engine, _, name = key.partition("|")
         voice = self.services.settings.voice
+        if engine == "openai" and not voice.openai_key:
+            self.settings_page.gallery_state.setText(
+                "⚠ Les voix ChatGPT demandent une clé OpenAI (IA → Avancé → Gérer mes clés)."
+            )
+            return
+        if engine == "gemini" and not voice.gemini_key:
+            self.settings_page.gallery_state.setText(
+                "⚠ Les voix Gemini demandent une clé Gemini (IA → Avancé → Gérer mes clés)."
+            )
+            return
         field = {"gemini": "gemini_voice", "openai": "openai_voice"}.get(engine, "tts_voice")
         trial = replace(voice, tts_engine=engine, **{field: name})  # type: ignore[arg-type]
         speaker = self.services.speaker

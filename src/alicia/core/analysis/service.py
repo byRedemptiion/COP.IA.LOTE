@@ -37,6 +37,50 @@ BRAIN_LABELS = {"rapide": "Cerveau rapide", "reflechi": "Cerveau réfléchi"}
 log = logging.getLogger("alicia.analysis")
 
 
+# Applis du quotidien : au premier plan, on n'est pas en train de jouer (le Copilote ne
+# dépense pas d'appel à l'IA), même si un jeu a été vu il y a peu.
+DESKTOP_APPS = {
+    "discord.exe",
+    "chrome.exe",
+    "msedge.exe",
+    "firefox.exe",
+    "opera.exe",
+    "opera_gx.exe",
+    "brave.exe",
+    "vivaldi.exe",
+    "explorer.exe",
+    "obs64.exe",
+    "obs32.exe",
+    "streamlabs obs.exe",
+    "code.exe",
+    "spotify.exe",
+    "steam.exe",
+    "steamwebhelper.exe",
+    "epicgameslauncher.exe",
+    "battle.net.exe",
+    "ms-teams.exe",
+    "teams.exe",
+    "slack.exe",
+    "whatsapp.exe",
+    "telegram.exe",
+    "notepad.exe",
+    "notepad++.exe",
+    "windowsterminal.exe",
+    "cmd.exe",
+    "powershell.exe",
+    "python.exe",
+    "pythonw.exe",
+    "alicia-gui.exe",
+    "alicia.exe",
+    "claude.exe",
+    "winword.exe",
+    "excel.exe",
+    "vlc.exe",
+    "taskmgr.exe",
+    "systemsettings.exe",
+}
+
+
 @dataclass
 class AnalysisOutcome:
     operation_id: str
@@ -420,6 +464,8 @@ class AnalysisService:
         """Un jeu est-il en cours ? (jeu reconnu, appli plein écran, ou jeu vu il y a peu)"""
         if self.game_profile != "auto":
             return True
+        if window is not None and (window.exe_name or "").casefold() in DESKTOP_APPS:
+            return False  # Discord, navigateur, OBS… au premier plan : pas en jeu
         if window is not None and window.handle:
             if resolve_profile(window, "auto") is not GENERIC or window.fullscreen:
                 return True
