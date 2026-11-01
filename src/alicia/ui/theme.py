@@ -24,6 +24,7 @@ GLOW = "#12206a"  # haut du dégradé de fond
 STATE_COLORS = {
     "idle": QColor(43, 140, 255),  # halo bleu du portrait
     "listening": QColor(34, 227, 255),  # cyan : elle t'écoute
+    "observing": QColor(61, 220, 132),  # vert : le Copilote regarde ta partie (micro en veille)
     "thinking": QColor(155, 92, 255),  # violet : elle réfléchit
     "speaking": QColor(255, 61, 139),  # rose de ses cheveux : elle parle
     "action": QColor(245, 182, 42),  # or de son armure : action sur le PC
@@ -37,6 +38,7 @@ for _state, _rgb in _PERSONA.states.items():
 STATE_LABELS = {
     "idle": "EN VEILLE",
     "listening": "À L'ÉCOUTE",
+    "observing": "OBSERVE",
     "thinking": "RÉFLÉCHIT",
     "speaking": "PARLE",
     "action": "ACTION",

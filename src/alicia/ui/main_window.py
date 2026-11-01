@@ -2929,7 +2929,16 @@ class MainWindow(QMainWindow):
         elif speaker is not None and getattr(speaker, "speaking", False):
             self._core("speaking")
         else:
-            self._core("idle")
+            self._core("observing" if self._copilot_watching() else "idle")
+
+    def _copilot_watching(self) -> bool:
+        """Copilote actif et pas en pause : au repos, le rond affiche « OBSERVE »."""
+        copilot = getattr(self.services.settings, "copilot", None)
+        return bool(
+            copilot is not None
+            and copilot.enabled
+            and time.monotonic() >= getattr(self, "_copilot_pause_until", 0.0)
+        )
 
     def _attach_logs(self) -> None:
         self.log_bridge = LogBridge()
@@ -3416,6 +3425,8 @@ class MainWindow(QMainWindow):
         self.copilot_button.setChecked(bool(on))
         self.copilot_button.setText("💡  Copilote ✓" if on else "💡  Copilote")
         self.copilot_button.blockSignals(False)
+        if self.core.state in ("idle", "observing"):
+            self._core_settle()  # « OBSERVE » ↔ « EN VEILLE » tout de suite
         page = self.settings_page
         page.copilot_box.blockSignals(True)
         page.copilot_box.setChecked(bool(on))
@@ -3475,6 +3486,8 @@ class MainWindow(QMainWindow):
         frame = self._live_frame(self.services.settings.copilot.interval_s)
         model = self.services.model
         self._copilot_running = True
+        if self.core.state == "idle":
+            self._core("observing")  # fin d'une pause : il regarde de nouveau
 
         def look():  # type: ignore[no-untyped-def]
             from alicia.core.ai.image_prep import prepare_image
@@ -3540,6 +3553,8 @@ class MainWindow(QMainWindow):
             return
         self._copilot_pause_until = time.monotonic() + pause
         log.warning("Copilote : pause de %.0f s (%s)", pause, text)
+        if self.core.state == "observing":
+            self._core_settle()  # en pause : il ne regarde plus
         if fails == 1 or kind is not ProviderErrorKind.AUTH or fails % 5 == 0:
             self._notify(text)
 

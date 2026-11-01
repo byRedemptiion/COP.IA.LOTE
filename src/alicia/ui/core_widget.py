@@ -22,6 +22,7 @@ from alicia.ui.theme import STATE_COLORS, STATE_LABELS, title_font
 SPEED = {
     "idle": 0.05,
     "listening": 0.12,
+    "observing": 0.08,
     "thinking": 0.6,
     "speaking": 0.18,
     "action": 0.3,

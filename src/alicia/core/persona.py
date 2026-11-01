@@ -116,6 +116,7 @@ VIIRUS = Persona(
     states={
         "idle": (124, 77, 255),
         "listening": (45, 168, 255),
+        "observing": (0, 224, 150),
         "thinking": (179, 157, 255),
         "speaking": (150, 100, 255),
         "action": (91, 155, 255),

@@ -277,3 +277,36 @@ def test_copilot_does_not_call_the_ai_without_a_game(qt_app, tmp_path, monkeypat
         assert model.requests == []
     finally:
         window.close()
+
+
+def test_core_shows_observing_while_the_copilot_watches(qt_app, tmp_path, monkeypatch):
+    from alicia.ui.main_window import MainWindow
+    from alicia.ui.theme import STATE_LABELS
+
+    monkeypatch.chdir(tmp_path)
+    window = MainWindow(
+        build_services(load_settings(environ={"ALICE_AI_PROVIDER": "fake"}), demo=True)
+    )
+    try:
+        assert STATE_LABELS["observing"] == "OBSERVE"
+        window.set_copilot(True, save=False)
+        assert window.core.state == "observing"  # distinct de « À L'ÉCOUTE »
+        window.set_copilot(False, save=False)
+        assert window.core.state == "idle"
+    finally:
+        window.close()
+
+
+def test_bubble_text_never_stays_more_than_15_s(qt_app):
+    from alicia.ui.orb import MAX_SHOW_MS, Bubble
+
+    bubble = Bubble()
+    bubble.load_prefs({"bubble_seconds": 60})
+    assert bubble.seconds == 15
+    assert bubble.after_voice_ms() <= 15000
+    assert bubble.linger_ms("mot " * 500) <= 12000
+    bubble.set_answer("Salut")
+    assert bubble._cap_timer.isActive() and bubble._cap_timer.interval() == MAX_SHOW_MS
+    bubble.hide_after(60000)
+    assert bubble._hide_timer.interval() == MAX_SHOW_MS
+    bubble.close()

@@ -32,6 +32,8 @@ log = logging.getLogger("alicia.ui")
 WDA_EXCLUDEFROMCAPTURE = 0x11
 BUBBLE_WIDTH = 400
 MAX_BUBBLE_CHARS = 900
+MAX_SHOW_MS = 15000  # un texte ne reste jamais plus de 15 s à l'écran
+MAX_AFTER_S = 15  # « Reste affichée » : 15 s au plus après la voix
 MARGIN = 24
 AVATAR = 52
 
@@ -139,6 +141,9 @@ class Bubble(QWidget):
         self._hide_timer = QTimer(self)
         self._hide_timer.setSingleShot(True)
         self._hide_timer.timeout.connect(self.fade_out)
+        self._cap_timer = QTimer(self)  # plafond : 15 s après le dernier texte affiché
+        self._cap_timer.setSingleShot(True)
+        self._cap_timer.timeout.connect(self._cap)
         self._fade = QPropertyAnimation(self, b"windowOpacity", self)
         self._fade.setDuration(260)
         self._fade.finished.connect(self._fade_finished)
@@ -180,17 +185,17 @@ class Bubble(QWidget):
             self.alpha = max(0.3, min(1.0, float(data.get("bubble_alpha", self.alpha))))
             side = str(data.get("bubble_side", self.side))
             self.side = side if side in ("auto", "left", "right", "above", "below") else "auto"
-            self.seconds = max(2, min(60, int(data.get("bubble_seconds", self.seconds))))
+            self.seconds = max(2, min(MAX_AFTER_S, int(data.get("bubble_seconds", self.seconds))))
         except (TypeError, ValueError):
             pass
         self.apply_style()
 
     def after_voice_ms(self) -> int:
-        return int(self.seconds * 1000)
+        return int(min(self.seconds, MAX_AFTER_S) * 1000)
 
     def linger_ms(self, text: str) -> int:
-        """Sans voix : le temps de lire (au moins le réglage, au plus 30 s)."""
-        return int(min(30000, max(self.seconds * 1000 + 2000, len(text) * 55)))
+        """Sans voix : le temps de lire (au moins le réglage, au plus 12 s)."""
+        return int(min(12000, max(self.seconds * 1000 + 2000, len(text) * 55)))
 
     def show_sample(self) -> None:
         """Mode édition : bulle d'exemple, qui reste affichée."""
@@ -275,8 +280,9 @@ class Bubble(QWidget):
     def hide_after(self, ms: int) -> None:
         if self.editing:
             return  # en mode édition, la bulle d'exemple reste
-        self._mirror("hide", after_ms=max(500, ms))
-        self._hide_timer.start(max(500, ms))
+        ms = max(500, min(MAX_SHOW_MS, ms))
+        self._mirror("hide", after_ms=ms)
+        self._hide_timer.start(ms)
 
     def keep(self) -> None:
         self._hide_timer.stop()
@@ -294,8 +300,14 @@ class Bubble(QWidget):
         if self.windowOpacity() <= 0.01:
             self.hide()
 
+    def _cap(self) -> None:
+        if not self.editing and self.isVisible():
+            self.fade_out()
+
     def _pop(self) -> None:
         self._hide_timer.stop()
+        if not self.editing:
+            self._cap_timer.start(MAX_SHOW_MS)
         self._fade.stop()
         self._relayout()
         if not self.isVisible():
@@ -768,7 +780,7 @@ class EditPanel(QWidget):
         self.width_ = slider(260, 800)
         self.font = slider(8, 22)
         self.alpha = slider(30, 100)
-        self.seconds = slider(2, 30)
+        self.seconds = slider(2, MAX_AFTER_S)
         self.values: dict[QSlider, QLabel] = {}
         rows = (
             ("Taille du rond", self.size, " px"),
