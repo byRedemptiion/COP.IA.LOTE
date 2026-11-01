@@ -36,9 +36,9 @@ for _state, _rgb in _PERSONA.states.items():
 
 STATE_LABELS = {
     "idle": "EN VEILLE",
-    "listening": "J'ÉCOUTE",
-    "thinking": "J'ANALYSE",
-    "speaking": "JE PARLE",
+    "listening": "À L'ÉCOUTE",
+    "thinking": "RÉFLÉCHIT",
+    "speaking": "PARLE",
     "action": "ACTION",
     "error": "ERREUR",
 }

@@ -233,8 +233,8 @@ class MainWindow(QMainWindow):
         model = self.services.model
         self.provider_label = QPushButton(f"IA · {model.provider} / {model.model}")
         self.provider_label.setObjectName("chipButton")
-        self.provider_label.setToolTip("Choisir l'IA d'ALICIA et coller sa clé")
-        self.provider_label.clicked.connect(self.open_setup)
+        self.provider_label.setToolTip("Voir les cerveaux d'ALICIA (Réglages → IA)")
+        self.provider_label.clicked.connect(lambda: self.show_page(2, "ai"))
         self.hotkey_label = QLabel("")
         self.hotkey_label.setObjectName("chip")
         self.nav_console = QPushButton("◈  ALICIA")
