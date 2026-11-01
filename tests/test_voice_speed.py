@@ -89,3 +89,34 @@ def test_first_sentence_is_short_so_the_voice_starts_sooner(text):
     parts = split_sentences(text)
     assert len(parts[0]) <= 90 and parts[0].endswith(",")
     assert " ".join(parts).replace(" ,", ",").startswith("Garde-le")
+
+
+def test_openai_users_get_openai_transcription(monkeypatch):
+    import httpx
+
+    from alicia.core.ai.base import PreparedAudio
+    from alicia.core.audio.stt import OpenAITranscriber
+    from alicia.core.config import load_settings
+
+    settings = load_settings(environ={"ALICE_AI_PROVIDER": "openai", "OPENAI_API_KEY": "sk-x"})
+    sent = {}
+
+    class Reply:
+        status_code = 200
+        text = ""
+
+        def json(self):
+            return {"text": "C'est ton incapacité à m'aider, tocard."}
+
+    def post(url, headers, data, files, timeout):
+        sent.update(url=url, data=data, auth=headers["Authorization"])
+        return Reply()
+
+    monkeypatch.setattr(httpx, "post", post)
+    transcriber = OpenAITranscriber(settings.ai)
+    transcriber.hint = "PRAGMATA"
+    text = transcriber.transcribe(PreparedAudio(b"RIFF", "audio/wav", 1.0))
+    assert text.endswith("tocard.")
+    assert sent["url"].endswith("/audio/transcriptions")
+    assert sent["data"]["model"] == "gpt-4o-mini-transcribe" and sent["data"]["language"] == "fr"
+    assert "PRAGMATA" in sent["data"]["prompt"]

@@ -95,6 +95,8 @@ class AnalysisService:
             dictated = False  # question dictée : l'IA dira d'abord ce qu'elle a compris
             transcriber = self._transcriber()
             if audio is not None and transcriber is not None:
+                if hasattr(transcriber, "hint"):
+                    transcriber.hint = (getattr(window, "title", "") or "")[:60]
                 local_transcript = self._transcribe(transcriber, audio)
                 if local_transcript:
                     from alicia.core.audio.wake import strip_wake_word
@@ -376,17 +378,30 @@ class AnalysisService:
                     window.exe_name or "?",
                 )
 
+    def cloud_stt(self) -> str | None:
+        """Qui transcrit en ligne : "gemini" (IA Gemini), "openai" (IA ChatGPT), sinon None."""
+        if self.stt != "gemini":  # réglage « en ligne » (nom historique)
+            return None
+        if self.model.provider == "gemini":
+            return "gemini"
+        if self.model.provider == "openai" and self.settings.ai.openai.api_key:
+            return "openai"
+        return None
+
     def local_stt(self) -> bool:
-        """Transcrire la voix sur le PC (Whisper) ? Non si c'est Gemini qui transcrit."""
-        return self.stt != "gemini" or self.model.provider != "gemini"
+        """Transcrire la voix sur le PC (Whisper) ? Non si Gemini ou OpenAI transcrit."""
+        return self.cloud_stt() is None
 
     def _transcriber(self):  # type: ignore[no-untyped-def]
-        if self.local_stt():
+        cloud = self.cloud_stt()
+        if cloud is None:
             return self.transcriber
-        if self.cloud_transcriber is None:
-            from alicia.core.audio.stt import CloudTranscriber
+        if self.cloud_transcriber is None or getattr(self, "_cloud_kind", cloud) != cloud:
+            from alicia.core.audio.stt import CloudTranscriber, OpenAITranscriber
 
-            self.cloud_transcriber = CloudTranscriber(self.settings.ai)
+            kind = CloudTranscriber if cloud == "gemini" else OpenAITranscriber
+            self.cloud_transcriber = kind(self.settings.ai)
+        self._cloud_kind = cloud
         return self.cloud_transcriber
 
     def _transcribe(self, transcriber, audio):  # type: ignore[no-untyped-def]
@@ -397,7 +412,7 @@ class AnalysisService:
             if transcriber is self.transcriber or self.transcriber is None:
                 raise
             log.warning(
-                "Transcription Gemini impossible (%s) : Whisper prend le relais", exc.detail
+                "Transcription en ligne impossible (%s) : Whisper prend le relais", exc.detail
             )
             return self.transcriber.transcribe(audio)
 

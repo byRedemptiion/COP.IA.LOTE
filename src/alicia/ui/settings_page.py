@@ -1573,7 +1573,9 @@ class SettingsPage(QWidget):
         logs.clicked.connect(lambda: self._emit("show_logs", True))
         grid.addWidget(logs, 1, 2)
         self.stt_box = QComboBox()
-        self.stt_box.addItem("Gemini transcrit ta voix (environ 1 s, avec Gemini)", "gemini")
+        self.stt_box.addItem(
+            "Ton IA en ligne transcrit ta voix (Gemini ou ChatGPT, environ 1 s)", "gemini"
+        )
         self.stt_box.addItem("Sur ton PC avec Whisper (gratuit, plus lent : 3 à 7 s)", "local")
         self.stt_box.currentIndexChanged.connect(
             lambda _i: self._emit("stt", self.stt_box.currentData())

@@ -161,9 +161,26 @@ class LocalTranscriber:
 
 TRANSCRIBE_PROMPT = (
     "Tu es un transcripteur. Écris exactement ce que dit la personne, en français, avec la "
-    "ponctuation. N'ajoute rien, ne réponds pas à la question, pas de guillemets. "
+    "ponctuation et l'orthographe correcte. C'est un joueur qui parle à son robot copilote "
+    "pendant une partie : français parlé et familier (argot, gros mots, anglicismes, termes de "
+    "jeux vidéo) — écris chaque mot tel qu'il est dit, sans l'adoucir ni le corriger, et en "
+    "entier (« tocard », pas « toca »). Retire seulement les hésitations (euh, hum) et les mots "
+    "répétés par bégaiement. N'ajoute rien, ne réponds pas à la question, pas de guillemets. "
     "Si tu n'entends aucun mot, réponds seulement : (silence)."
 )
+
+
+def _hints(extra: str = "") -> str:
+    from alicia.core.people import known_names
+    from alicia.core.persona import current, player
+
+    names = ", ".join(
+        dict.fromkeys(n for n in (player().name, current().title, *known_names()) if n)
+    )
+    out = f" Noms propres possibles : {names}." if names else ""
+    if extra:
+        out += f" Jeu en cours : {extra}."
+    return out
 
 
 class CloudTranscriber:
@@ -172,34 +189,31 @@ class CloudTranscriber:
     Même interface que LocalTranscriber.transcribe : le texte sert ensuite aux commandes
     vocales, aux noms corrigés (« Compris ») et au choix du cerveau, comme avant."""
 
-    def __init__(self, ai_settings, model: str = "gemini-flash-lite-latest") -> None:  # type: ignore[no-untyped-def]
+    # Flash (plus juste que Flash-Lite), en réflexion minimale : toujours ~1 s.
+    def __init__(self, ai_settings, model: str = "gemini-flash-latest") -> None:  # type: ignore[no-untyped-def]
         from dataclasses import replace
 
         from alicia.core.ai.factory import create_model
 
         gemini = replace(
-            ai_settings.gemini, model=model, fallback_models=(ai_settings.gemini.model,)
+            ai_settings.gemini, model=model, fallback_models=("gemini-flash-lite-latest",)
         )
         self.model = create_model(replace(ai_settings, provider="gemini", gemini=gemini))
+        self.hint = ""  # titre du jeu en cours (aide pour les noms du jeu)
 
     def transcribe(self, audio: PreparedAudio) -> str:
         from alicia.core.ai.base import AnalysisRequest
-        from alicia.core.people import known_names
-        from alicia.core.persona import current, player
 
-        names = ", ".join(
-            dict.fromkeys(n for n in (player().name, current().title, *known_names()) if n)
-        )
         started = time.perf_counter()
         result = self.model.analyze(
             AnalysisRequest(
                 question="Transcris ce message vocal.",
                 images=(),
-                system_prompt=TRANSCRIBE_PROMPT
-                + (f" Noms propres possibles : {names}." if names else ""),
+                system_prompt=TRANSCRIBE_PROMPT + _hints(self.hint),
                 audio=audio,
-                max_output_tokens=200,
+                max_output_tokens=300,
                 temperature=0.0,
+                quick=True,
             )
         )
         text = result.text.strip().strip('"«» ')
@@ -207,6 +221,64 @@ class CloudTranscriber:
             text = ""
         log.info(
             "Transcription Gemini : %d caractères en %.2f s pour %.1f s d'audio",
+            len(text),
+            time.perf_counter() - started,
+            audio.duration_s,
+        )
+        return text
+
+
+class OpenAITranscriber:
+    """Transcription par OpenAI (gpt-4o-mini-transcribe) pour qui utilise ChatGPT : ~1 s,
+    bien plus juste que Whisper « base » sur le PC. Même interface que CloudTranscriber."""
+
+    MODEL = "gpt-4o-mini-transcribe"
+
+    def __init__(self, ai_settings) -> None:  # type: ignore[no-untyped-def]
+        self.settings = ai_settings.openai
+        self.timeout = ai_settings.timeout_s
+        self.hint = ""
+
+    def transcribe(self, audio: PreparedAudio) -> str:
+        import httpx
+
+        from alicia.core.errors import ProviderError, ProviderErrorKind
+
+        started = time.perf_counter()
+        prompt = (
+            "Joueur qui parle à son robot copilote pendant une partie, français familier."
+            + _hints(self.hint)
+        )
+        try:
+            response = httpx.post(
+                self.settings.base_url.rstrip("/") + "/audio/transcriptions",
+                headers={"Authorization": f"Bearer {self.settings.api_key.get() or ''}"},
+                data={"model": self.MODEL, "language": "fr", "prompt": prompt},
+                files={"file": ("question.wav", audio.data, audio.mime_type or "audio/wav")},
+                timeout=min(30.0, self.timeout),
+            )
+        except httpx.HTTPError as exc:
+            raise ProviderError(
+                ProviderErrorKind.UNAVAILABLE, "Transcription OpenAI injoignable.", detail=repr(exc)
+            ) from exc
+        if response.status_code >= 400:
+            kind = {401: ProviderErrorKind.AUTH, 429: ProviderErrorKind.RATE_LIMIT}.get(
+                response.status_code, ProviderErrorKind.UNAVAILABLE
+            )
+            raise ProviderError(
+                kind,
+                f"Transcription OpenAI : erreur {response.status_code}.",
+                detail=" ".join(response.text.split())[:300],
+                status_code=response.status_code,
+            )
+        try:
+            text = str(response.json().get("text", "")).strip().strip('"«» ')
+        except ValueError:
+            text = ""
+        if _HALLUCINATIONS.search(text):
+            text = ""
+        log.info(
+            "Transcription OpenAI : %d caractères en %.2f s pour %.1f s d'audio",
             len(text),
             time.perf_counter() - started,
             audio.duration_s,
