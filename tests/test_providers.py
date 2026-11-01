@@ -431,3 +431,14 @@ def test_per_minute_quota_gives_retry_delay():
         }
     )
     assert quota_details(body) == ("GenerateRequestsPerMinutePerProjectPerModel-FreeTier", 46)
+
+
+def test_gemini_quick_request_asks_for_minimal_thinking():
+    from dataclasses import replace
+
+    model = gemini(lambda r: httpx.Response(500))
+    _url, _headers, body = model._request(replace(REQUEST, quick=True))
+    assert body["generationConfig"]["thinkingConfig"] == {"thinkingLevel": "minimal"}
+    model.model = "gemini-2.5-flash"
+    _url, _headers, body = model._request(replace(REQUEST, quick=True))
+    assert body["generationConfig"]["thinkingConfig"] == {"thinkingBudget": 0}

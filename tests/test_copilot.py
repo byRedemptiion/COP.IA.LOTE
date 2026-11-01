@@ -66,7 +66,8 @@ def test_observe_sends_one_small_request_with_rules():
     assert speak and decision.message == "Esquive !" and why == "urgent"
     request = model.requests[0]
     assert "MODE COPILOTE" in request.system_prompt and "Elden Ring" in request.system_prompt
-    assert request.max_output_tokens <= 200 and len(request.images) == 1
+    assert request.max_output_tokens <= 300 and len(request.images) == 1
+    assert request.quick  # réflexe : réflexion minimale
     copilot.observe(model, image)  # 2e fois : redite, et le prompt rappelle ce qui a été dit
     assert "Esquive !" in model.requests[1].system_prompt
 

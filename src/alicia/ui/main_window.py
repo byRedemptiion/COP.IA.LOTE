@@ -3531,7 +3531,8 @@ class MainWindow(QMainWindow):
         if why:
             log.debug("Copilote : pas de coup d'œil (%s)", why)
             return
-        frame = self._live_frame(self.services.settings.copilot.interval_s)
+        # Toujours l'écran de cet instant : une image vieille de 10 s, c'est un conseil en retard.
+        frame = self._live_frame(1.5)
         model = self.services.model
         self._copilot_running = True
         if self.core.state == "idle":
@@ -3553,8 +3554,8 @@ class MainWindow(QMainWindow):
             if not self.services.analysis.playing(shot.window):
                 return None, False, "pas de jeu en cours (aucun appel à l'IA)"
             capture = self.services.settings.capture
-            image = prepare_image(
-                shot.image, min(capture.max_image_side, 1024), capture.jpeg_quality
+            image = prepare_image(  # plus petite : envoyée et lue plus vite
+                shot.image, min(capture.max_image_side, 768), capture.jpeg_quality
             )
             profile, note = self.services.analysis.game_for(shot.window)
             return self.copilot.observe(model, image, profile.prompt_context(False) + note)

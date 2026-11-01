@@ -45,6 +45,7 @@ class AnalysisRequest:
     temperature: float = 0.4
     audio: PreparedAudio | None = None  # question orale du joueur (V0.3)
     web_search: bool = False  # autoriser une recherche web si le fournisseur sait le faire
+    quick: bool = False  # réponse réflexe (Copilote) : réflexion minimale, pour répondre vite
 
 
 @dataclass

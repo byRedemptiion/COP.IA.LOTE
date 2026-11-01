@@ -218,6 +218,10 @@ class GeminiModel(HttpVisionModel):
             thinking["thinkingBudget"] = self.settings.thinking_budget
         if self.settings.thinking_level:
             thinking["thinkingLevel"] = self.settings.thinking_level
+        if request.quick:  # Copilote : pas le temps de réfléchir longuement
+            thinking = (
+                {"thinkingBudget": 0} if "2.5" in self.model else {"thinkingLevel": "minimal"}
+            )
         if thinking and not self._thinking_rejected:
             generation["thinkingConfig"] = thinking
 

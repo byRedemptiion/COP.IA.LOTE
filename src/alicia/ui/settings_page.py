@@ -955,8 +955,11 @@ class SettingsPage(QWidget):
             lambda _i: self._emit("copilot_spontaneity", self.copilot_spontaneity.currentData())
         )
         self.copilot_interval = QComboBox()
-        for seconds in (15, 20, 30, 45, 60, 90, 120):
-            self.copilot_interval.addItem(f"toutes les {seconds} s", float(seconds))
+        for seconds in (8, 10, 15, 20, 30, 45, 60, 90, 120):
+            label = f"toutes les {seconds} s"
+            if seconds < 15:
+                label += " (IA en ligne : plus réactif)"
+            self.copilot_interval.addItem(label, float(seconds))
         self.copilot_cooldown = QComboBox()
         for seconds in (20, 30, 60, 90, 120, 180, 300):
             label = (
@@ -1287,6 +1290,16 @@ class SettingsPage(QWidget):
             self.designed_grid.addWidget(listen, index, 2)
             self.designed_grid.addWidget(choose, index, 3)
             self.gallery_buttons[key] = choose
+        # Aussi dans le choix de voix du profil (Moteur : Gemini → Voix)
+        box = self.gemini_voice_box
+        box.blockSignals(True)
+        for voice in load_voices():
+            index = box.findData(voice.id)
+            if index < 0:
+                box.addItem(f"✨ {voice.name} (sur mesure)", voice.id)
+            else:
+                box.setItemText(index, f"✨ {voice.name} (sur mesure)")
+        box.blockSignals(False)
 
     def mark_chosen_voice(self, key: str) -> None:
         for name, button in self.gallery_buttons.items():

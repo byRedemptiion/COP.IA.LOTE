@@ -29,7 +29,7 @@ COPILOT_RULES = """
 MODE COPILOTE — personne ne t'a posé de question. Tu regardes l'écran pour décider s'il
 vaut la peine de parler MAINTENANT. Par défaut, tu te tais.
 Réponds UNIQUEMENT par un objet JSON sur une seule ligne, sans texte autour :
-{{"speak": true ou false, "category": "{categories}", "importance": 1 à 10, "message": "...", "reason": "..."}}
+{{"speak": true ou false, "importance": 1 à 10, "category": "{categories}", "message": "...", "reason": "..."}}
 Catégories autorisées (n'en utilise AUCUNE autre) :
 {allowed}
 "importance" = à quel point ça vaut le coup d'être dit tout de suite :
@@ -39,7 +39,7 @@ Catégories autorisées (n'en utilise AUCUNE autre) :
 - Menu, écran de chargement, pause, bureau, cinématique : "speak": false.
 - "message" : une phrase courte à dire à voix haute (20 mots maximum), sans markdown, inventée
   à partir de ce que tu vois vraiment (jamais une phrase toute faite) ; vide si "speak" est
-  false. "reason" : quelques mots pour le journal.
+  false. "reason" : 3 à 8 mots pour le journal. Réponds vite : c'est un réflexe, pas une analyse.
 - Tu conseilles et tu réagis seulement : tu ne joues jamais à la place du joueur.
 {trash}{recent}"""
 
@@ -216,8 +216,9 @@ class Copilot:
                 spoken=True,
                 brain="rapide",
             ),
-            max_output_tokens=200,
+            max_output_tokens=300,
             temperature=0.3,
+            quick=True,
         )
         started = time.perf_counter()
         result = model.analyze(request)

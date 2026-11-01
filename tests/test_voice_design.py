@@ -107,6 +107,7 @@ def test_window_creates_and_lists_a_designed_voice(qt_app, tmp_path, monkeypatch
         page = window.settings_page
         _wait(qt_app, lambda: "créée" in page.design_state.text())
         assert "gemini|voice_xyz" in page.gallery_buttons
+        assert page.gemini_voice_box.findData("voice_xyz") >= 0  # aussi dans Profil → Voix
         window.change_setting("voice_choose", "gemini|voice_xyz")
         assert window.services.settings.voice.gemini_voice == "voice_xyz"
         assert window.services.settings.voice.tts_engine == "gemini"
