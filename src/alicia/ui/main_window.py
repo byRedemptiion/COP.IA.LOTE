@@ -769,6 +769,13 @@ class MainWindow(QMainWindow):
         self.settings_page.load_stream(self.services.settings.stream)
         self.settings_page.load_player(self.services.settings.player)
         self.settings_page.load_brains(self.services.settings.ai)
+        box = self.settings_page.channel_box
+        box.blockSignals(True)
+        branch = self.services.settings.update.branch
+        if box.findData(branch) < 0:
+            box.addItem(branch, branch)
+        box.setCurrentIndex(box.findData(branch))
+        box.blockSignals(False)
         self._show_personality()
         self.settings_page.load_duo(
             self.services.settings.duo,
@@ -1058,6 +1065,22 @@ class MainWindow(QMainWindow):
             self._save("duo", "hear_peer", bool(value))
         elif key == "duo_start":
             self.ask_duo_topic()
+        elif key == "update_channel":
+            from dataclasses import replace
+
+            branch = str(value or "alice-v0.3")
+            if branch == self.services.settings.update.branch:
+                return
+            update = replace(self.services.settings.update, branch=branch)
+            self.services.settings = replace(self.services.settings, update=update)
+            self._save("update", "branch", branch)
+            self.updater = self._make_updater()
+            log.info("Canal de mise à jour : %s", branch)
+            self._notify(
+                "Canal Test choisi : clique MAJ pour l'installer."
+                if branch == "alice-test"
+                else "Canal Stable choisi : clique MAJ pour revenir à la version normale."
+            )
         elif key == "github_token":
             self._save_env("ALICIA_GITHUB_TOKEN", str(value or "").strip())
             self.settings_page.github_token.clear()

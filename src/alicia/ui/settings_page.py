@@ -813,6 +813,23 @@ class SettingsPage(QWidget):
         grid.addWidget(save_token, 6, 2)
         self.github_state = _muted("")
         grid.addWidget(self.github_state, 7, 1, 1, 2)
+        self.channel_box = QComboBox()
+        self.channel_box.addItem("Stable : la version normale", "alice-v0.3")
+        self.channel_box.addItem(
+            "Test : les nouveautés en essai (peut avoir des bugs)", "alice-test"
+        )
+        self.channel_box.currentIndexChanged.connect(
+            lambda _i: self._emit("update_channel", self.channel_box.currentData())
+        )
+        grid.addWidget(QLabel("Canal MAJ"), 8, 0)
+        grid.addWidget(self.channel_box, 8, 1, 1, 2)
+        grid.addWidget(
+            _muted("Change de canal puis clique MAJ. Tu peux revenir sur Stable quand tu veux."),
+            9,
+            1,
+            1,
+            2,
+        )
         self._tab_layouts["general"].addWidget(general)
 
         copilot, grid = _panel()

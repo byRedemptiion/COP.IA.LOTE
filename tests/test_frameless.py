@@ -25,3 +25,24 @@ def test_window_has_its_own_title_bar(qt_app, tmp_path, monkeypatch):
         assert not window.isMaximized()
     finally:
         window.close()
+
+
+def test_update_channel_switches_branch(qt_app, tmp_path, monkeypatch):
+    import tomllib
+
+    from alicia.core.config import data_dir
+    from alicia.ui.main_window import MainWindow
+
+    monkeypatch.chdir(tmp_path)
+    window = MainWindow(
+        build_services(load_settings(environ={"ALICE_AI_PROVIDER": "fake"}), demo=True)
+    )
+    try:
+        box = window.settings_page.channel_box
+        assert box.currentData() == "alice-v0.3"
+        box.setCurrentIndex(box.findData("alice-test"))
+        assert window.services.settings.update.branch == "alice-test"
+        saved = tomllib.loads((data_dir() / "alicia.toml").read_text("utf-8"))
+        assert saved["update"]["branch"] == "alice-test"
+    finally:
+        window.close()
