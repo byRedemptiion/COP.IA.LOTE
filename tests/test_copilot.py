@@ -72,7 +72,12 @@ def test_observe_sends_one_small_request_with_rules():
 
 
 def _frame():
-    window = WindowInfo(1, "Elden Ring", 42, exe_name="eldenring.exe")
+    from alicia.core.capture.models import Rect
+
+    screen = Rect(0, 0, 1920, 1080)
+    window = WindowInfo(
+        1, "Elden Ring", 42, exe_name="eldenring.exe", rect=screen, monitor_rect=screen
+    )
     return Frame(Image.new("RGB", (64, 48)), window, "demo", datetime.now(), 1, "c1")
 
 
@@ -248,5 +253,27 @@ def test_copilot_logs_why_it_stays_quiet(qt_app, tmp_path, monkeypatch, caplog):
             for _ in range(10):
                 window._copilot_note("importance 5 < seuil 7")
         assert "10 derniers coups d'œil — importance 5 < seuil 7 ×10" in caplog.text
+    finally:
+        window.close()
+
+
+def test_copilot_does_not_call_the_ai_without_a_game(qt_app, tmp_path, monkeypatch):
+    from alicia.ui.main_window import MainWindow
+    from tests.test_duo import _wait
+
+    monkeypatch.chdir(tmp_path)
+    model = JsonModel('{"speak": true, "importance": 9, "message": "x"}')
+    window = MainWindow(
+        build_services(load_settings(environ={"ALICE_AI_PROVIDER": "fake"}), demo=True, model=model)
+    )
+    desktop = WindowInfo(0, "Écran 1", 0)
+    window._live_frame = lambda max_age_s=3.0: Frame(
+        Image.new("RGB", (64, 48)), desktop, "demo", datetime.now(), 1, "c2"
+    )
+    try:
+        window.set_copilot(True, save=False)
+        window._copilot_tick()
+        _wait(qt_app, lambda: not window._copilot_running)
+        assert model.requests == []
     finally:
         window.close()

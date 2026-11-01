@@ -3471,6 +3471,8 @@ class MainWindow(QMainWindow):
                 )
             elif shot.window is None:
                 return None, False, "pas de jeu au premier plan"
+            if not self.services.analysis.playing(shot.window):
+                return None, False, "pas de jeu en cours (aucun appel à l'IA)"
             capture = self.services.settings.capture
             image = prepare_image(
                 shot.image, min(capture.max_image_side, 1024), capture.jpeg_quality

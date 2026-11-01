@@ -366,6 +366,16 @@ class AnalysisService:
                     window.exe_name or "?",
                 )
 
+    def playing(self, window: WindowInfo | None) -> bool:
+        """Un jeu est-il en cours ? (jeu reconnu, appli plein écran, ou jeu vu il y a peu)"""
+        if self.game_profile != "auto":
+            return True
+        if window is not None and window.handle:
+            if resolve_profile(window, "auto") is not GENERIC or window.fullscreen:
+                return True
+        recent = self.last_game
+        return recent is not None and time.monotonic() - recent[2] < GAME_MEMORY_S
+
     def game_for(self, window: WindowInfo | None) -> tuple[GameProfile, str]:
         """Le jeu de la question, et une note pour l'IA quand il n'est pas dans la liste."""
         if self.game_profile != "auto":
