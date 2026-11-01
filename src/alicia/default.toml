@@ -100,7 +100,7 @@ speak_answers = true         # lire les réponses à voix haute (case à cocher 
 # Compréhension de ta voix :
 #   "local"  = faster-whisper sur ton processeur (gratuit, privé, n'importe quel cerveau IA)
 #   "gemini" = l'audio est envoyé à Gemini avec la capture (un seul appel)
-stt = "local"
+stt = "gemini"            # gemini : Gemini transcrit ta voix (~1 s) ; local : Whisper sur le PC (plus lent)
 # Modèle Whisper : "large-v3-turbo" (précis) ou "small" (plus rapide, moins précis)
 whisper_model = "large-v3-turbo"
 # Voix d'Alicia : "edge" (voix Microsoft en ligne), "kokoro" (voix locale, hors ligne) ou

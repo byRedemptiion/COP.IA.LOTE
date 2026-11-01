@@ -1455,7 +1455,33 @@ class SettingsPage(QWidget):
         logs = QPushButton("Ouvrir le journal")
         logs.clicked.connect(lambda: self._emit("show_logs", True))
         grid.addWidget(logs, 1, 2)
+        self.stt_box = QComboBox()
+        self.stt_box.addItem("Gemini transcrit ta voix (environ 1 s, avec Gemini)", "gemini")
+        self.stt_box.addItem("Sur ton PC avec Whisper (gratuit, plus lent : 3 à 7 s)", "local")
+        self.stt_box.currentIndexChanged.connect(
+            lambda _i: self._emit("stt", self.stt_box.currentData())
+        )
+        grid.addWidget(QLabel("Transcription"), 2, 0)
+        grid.addWidget(self.stt_box, 2, 1, 1, 2)
+        grid.addWidget(
+            _muted(
+                "Gemini (petit modèle rapide) transcrit ta phrase en ~1 s au lieu de 3 à 7 s sur "
+                "le processeur ; les commandes vocales et les noms marchent pareil. Sans "
+                "réseau, ou avec ChatGPT / Ollama, c'est Whisper sur ton PC."
+            ),
+            3,
+            1,
+            1,
+            2,
+        )
         return panel
+
+    def load_stt(self, stt: str) -> None:
+        self._loading = True
+        try:
+            self.stt_box.setCurrentIndex(max(0, self.stt_box.findData(stt)))
+        finally:
+            self._loading = False
 
     def show_anims(self, folder: str, found: dict) -> None:  # type: ignore[type-arg]
         self.anims_folder.setText(folder)

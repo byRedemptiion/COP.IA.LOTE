@@ -66,6 +66,8 @@ class AnalysisService:
         self.capture = capture
         self.model = model
         self.deep_model = None  # cerveau « réfléchi » (optionnel)
+        self.stt = settings.voice.stt  # local (Whisper sur le PC) | gemini (Gemini transcrit)
+        self.cloud_transcriber = None  # créé au premier besoin
         # Dernier jeu vu au premier plan : sert quand tu poses la question depuis le bureau
         # ou depuis COP'IA'LOTE (la fenêtre du jeu n'est alors plus devant).
         self.last_game: tuple[GameProfile, WindowInfo, float] | None = None
@@ -89,8 +91,9 @@ class AnalysisService:
             started = time.perf_counter()
             local_transcript = None
             dictated = False  # question dictée : l'IA dira d'abord ce qu'elle a compris
-            if audio is not None and self.transcriber is not None:
-                local_transcript = self.transcriber.transcribe(audio)
+            transcriber = self._transcriber()
+            if audio is not None and transcriber is not None:
+                local_transcript = self._transcribe(transcriber, audio)
                 if local_transcript:
                     from alicia.core.audio.wake import strip_wake_word
 
@@ -365,6 +368,31 @@ class AnalysisService:
                     profile.name if profile is not GENERIC else window.title,
                     window.exe_name or "?",
                 )
+
+    def local_stt(self) -> bool:
+        """Transcrire la voix sur le PC (Whisper) ? Non si c'est Gemini qui transcrit."""
+        return self.stt != "gemini" or self.model.provider != "gemini"
+
+    def _transcriber(self):  # type: ignore[no-untyped-def]
+        if self.local_stt():
+            return self.transcriber
+        if self.cloud_transcriber is None:
+            from alicia.core.audio.stt import CloudTranscriber
+
+            self.cloud_transcriber = CloudTranscriber(self.settings.ai)
+        return self.cloud_transcriber
+
+    def _transcribe(self, transcriber, audio):  # type: ignore[no-untyped-def]
+        """Transcrit ; si Gemini échoue (réseau, quota), Whisper sur le PC prend le relais."""
+        try:
+            return transcriber.transcribe(audio)
+        except ProviderError as exc:
+            if transcriber is self.transcriber or self.transcriber is None:
+                raise
+            log.warning(
+                "Transcription Gemini impossible (%s) : Whisper prend le relais", exc.detail
+            )
+            return self.transcriber.transcribe(audio)
 
     def playing(self, window: WindowInfo | None) -> bool:
         """Un jeu est-il en cours ? (jeu reconnu, appli plein écran, ou jeu vu il y a peu)"""

@@ -157,3 +157,58 @@ class LocalTranscriber:
             audio.duration_s,
         )
         return text
+
+
+TRANSCRIBE_PROMPT = (
+    "Tu es un transcripteur. Écris exactement ce que dit la personne, en français, avec la "
+    "ponctuation. N'ajoute rien, ne réponds pas à la question, pas de guillemets. "
+    "Si tu n'entends aucun mot, réponds seulement : (silence)."
+)
+
+
+class CloudTranscriber:
+    """Transcription par Gemini (petit modèle rapide) : ~1 s au lieu de plusieurs sur le CPU.
+
+    Même interface que LocalTranscriber.transcribe : le texte sert ensuite aux commandes
+    vocales, aux noms corrigés (« Compris ») et au choix du cerveau, comme avant."""
+
+    def __init__(self, ai_settings, model: str = "gemini-flash-lite-latest") -> None:  # type: ignore[no-untyped-def]
+        from dataclasses import replace
+
+        from alicia.core.ai.factory import create_model
+
+        gemini = replace(
+            ai_settings.gemini, model=model, fallback_models=(ai_settings.gemini.model,)
+        )
+        self.model = create_model(replace(ai_settings, provider="gemini", gemini=gemini))
+
+    def transcribe(self, audio: PreparedAudio) -> str:
+        from alicia.core.ai.base import AnalysisRequest
+        from alicia.core.people import known_names
+        from alicia.core.persona import current, player
+
+        names = ", ".join(
+            dict.fromkeys(n for n in (player().name, current().title, *known_names()) if n)
+        )
+        started = time.perf_counter()
+        result = self.model.analyze(
+            AnalysisRequest(
+                question="Transcris ce message vocal.",
+                images=(),
+                system_prompt=TRANSCRIBE_PROMPT
+                + (f" Noms propres possibles : {names}." if names else ""),
+                audio=audio,
+                max_output_tokens=200,
+                temperature=0.0,
+            )
+        )
+        text = result.text.strip().strip('"«» ')
+        if text.casefold() in ("(silence)", "silence") or _HALLUCINATIONS.search(text):
+            text = ""
+        log.info(
+            "Transcription Gemini : %d caractères en %.2f s pour %.1f s d'audio",
+            len(text),
+            time.perf_counter() - started,
+            audio.duration_s,
+        )
+        return text

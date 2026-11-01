@@ -62,7 +62,7 @@ def deep_reason(question: str) -> str | None:
         _DEEP = re.compile(
             r"\b(?:reflechis|reflechir|analyse|analyser|strategie|strategique|build|plan|"
             r"planifie|optimise|optimiser|compare|comparer|explique en detail|en detail|"
-            r"pourquoi|meilleure? (?:facon|strategie|option|combo|rotation)|que dois-je faire|"
+            r"meilleure? (?:facon|strategie|option|combo|rotation)|que dois-je faire|"
             r"comment battre|comment gagner|prochaines? minutes?|toute ma partie)\b"
         )
     plain = unicodedata.normalize("NFKD", question.casefold())

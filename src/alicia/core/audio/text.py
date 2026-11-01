@@ -27,7 +27,9 @@ def clean_for_speech(text: str) -> str:
     return "\n".join(line for line in lines if line)
 
 
-def split_sentences(text: str, min_chars: int = 25, max_chars: int = 260) -> list[str]:
+def split_sentences(
+    text: str, min_chars: int = 25, max_chars: int = 260, first_max: int = 90
+) -> list[str]:
     """Découpe en phrases pour une lecture progressive (la 1re phrase part plus tôt).
 
     Les phrases très courtes sont regroupées ; les très longues coupées sur une virgule.
@@ -45,4 +47,11 @@ def split_sentences(text: str, min_chars: int = 25, max_chars: int = 260) -> lis
             sentences[-1] = f"{sentences[-1]} {sentence}"
         elif sentence:
             sentences.append(sentence)
-    return [s for s in sentences if any(c.isalnum() for c in s)]
+    sentences = [s for s in sentences if any(c.isalnum() for c in s)]
+    # La 1re phrase part plus vite si elle est courte : on la coupe sur une virgule.
+    if sentences and len(sentences[0]) > first_max:
+        first = sentences[0]
+        cut = first.rfind(", ", 12, first_max)
+        if cut > 0:
+            sentences[0:1] = [first[: cut + 1].strip(), first[cut + 1 :].strip()]
+    return sentences

@@ -166,7 +166,7 @@ class CaptureSettings:
 @dataclass(frozen=True)
 class VoiceSettings:
     speak_answers: bool = True  # lire les réponses à voix haute
-    stt: str = "local"  # local (faster-whisper) | gemini (audio envoyé au modèle)
+    stt: str = "gemini"  # gemini : Gemini transcrit (~1 s) | local : Whisper sur le PC
     whisper_model: str = "large-v3-turbo"
     tts_engine: str = "edge"  # edge | kokoro
     kokoro_voice: str = "ff_siwis"
@@ -528,7 +528,7 @@ def load_settings(
         ),
         voice=VoiceSettings(
             speak_answers=bool(voice.get("speak_answers", True)),
-            stt=_choice(voice, "stt", "local", ("local", "gemini")),
+            stt=_choice(voice, "stt", "gemini", ("local", "gemini")),
             whisper_model=str(voice.get("whisper_model", "large-v3-turbo")).strip(),
             tts_engine=_choice(
                 voice,

@@ -227,7 +227,7 @@ class MainWindow(QMainWindow):
         self._update_state()
         self._setup_hotkey()
         # Modèles locaux chargés en arrière-plan : la 1re question orale n'attend pas.
-        if self.services.transcriber is not None:
+        if self.services.transcriber is not None and self.services.analysis.local_stt():
             self.services.transcriber.warm_up_async()
         if self.services.speaker is not None and self.services.settings.voice.speak_answers:
             self.services.speaker.warm_up_async()
@@ -794,6 +794,7 @@ class MainWindow(QMainWindow):
         self.settings_page.load_player(self.services.settings.player)
         self.settings_page.load_brains(self.services.settings.ai)
         self.settings_page.load_orb(self.orb.prefs, self.orb.size_px)
+        self.settings_page.load_stt(self.services.settings.voice.stt)
         self.settings_page.version_label.setText(
             f"{PROJECT_NAME} v{__version__} {self._build_text()}".strip()
         )
@@ -1119,6 +1120,15 @@ class MainWindow(QMainWindow):
             self.orb.set_orb_size(int(value))  # type: ignore[call-overload]
         elif key == "orb_reset_position":
             self.orb.reset_position()
+        elif key == "stt":
+            mode = "gemini" if value == "gemini" else "local"
+            self._update_voice(stt=mode)
+            self.services.analysis.stt = mode
+            if self.services.analysis.local_stt() and self.services.transcriber is not None:
+                self.services.transcriber.warm_up_async()
+            log.info(
+                "Compréhension de la voix : %s", "Gemini" if mode == "gemini" else "Whisper (PC)"
+            )
         elif key == "show_logs":
             self.show_page(0)
             if not self.logs_panel.isVisible():
@@ -2309,6 +2319,7 @@ class MainWindow(QMainWindow):
         log.info("IA choisie : %s/%s", model.provider, model.model)
         self._update_state()
         self.prepare_ollama()
+        self.services.analysis.cloud_transcriber = None  # nouvelle clé : nouveau transcripteur
         self._copilot_pause_until = 0.0  # nouvelle clé : le Copilote réessaie tout de suite
         self._copilot_fails = 0
         self.check_ai_now()

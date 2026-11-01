@@ -55,7 +55,8 @@ def build_services(
     model = model or create_model(settings.ai)
     session = SessionContext(settings.ai.history_turns)
     voice = settings.voice
-    if transcriber is None and voice.stt == "local" and not demo:
+    if transcriber is None and not demo:
+        # gardé même avec stt = gemini : il sert si l'IA n'est pas Gemini
         transcriber = LocalTranscriber(voice.whisper_model)
     if actions is None and settings.actions.enabled:
         actions = ActionController(settings.actions, None if demo else _system())
