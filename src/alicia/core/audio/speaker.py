@@ -150,6 +150,7 @@ def openai_synthesizer(settings: VoiceSettings) -> Synthesizer:
                         if settings.voice_effect in VOICE_EFFECTS
                         else ""
                     )
+                    + (f" Voix et jeu : {settings.voice_style}." if settings.voice_style else "")
                     + pace,
                     "response_format": "pcm",  # 24 kHz, 16 bits, mono
                 },
@@ -254,6 +255,8 @@ GEMINI_VOICE_STYLE = "Dis en français, d'un ton naturel et vivant de coéquipie
 
 
 def _gemini_style(settings: VoiceSettings) -> str:
+    if settings.voice_style:  # consigne libre écrite par le joueur
+        return f"Dis en français, {settings.voice_style} : "
     effect = VOICE_EFFECTS.get(settings.voice_effect)
     if effect is None:
         return GEMINI_VOICE_STYLE
@@ -322,9 +325,17 @@ def gemini_synthesizer(settings: VoiceSettings) -> Synthesizer:
             ) from exc
         return np.frombuffer(data[: len(data) - len(data) % 2], dtype=np.int16)
 
+    def with_retry(text: str) -> np.ndarray:
+        # Google coupe parfois une phrase au hasard (« SAFETY », « retry your request ») :
+        # un 2e essai passe souvent ; sinon la voix de secours la dit.
+        try:
+            return synthesize(text)
+        except voice_design.VoiceBlocked:
+            return synthesize(text)
+
     if not settings.gemini_key:
         return synthesize  # le message « il faut une clé » reste affiché
-    return voice_design.with_fallback(synthesize, _profile_fallback(settings))
+    return voice_design.with_fallback(with_retry, _profile_fallback(settings))
 
 
 def _profile_fallback(settings: VoiceSettings) -> Synthesizer:
@@ -345,6 +356,8 @@ def _designed(settings: VoiceSettings) -> Synthesizer:
         return fallback
     effect = VOICE_EFFECTS.get(settings.voice_effect)
     style = "ton naturel et vivant de coéquipier de jeu" if effect is None else effect[4]
+    if settings.voice_style:
+        style = settings.voice_style
     primary = voice_design.designed_synthesizer(
         settings.gemini_key.get() or "", settings.gemini_voice, style
     )
@@ -374,6 +387,14 @@ VOICE_EFFECTS: dict[str, tuple[int, float, float, float, str]] = {
         4200.0,
         0.6,
         "comme un petit robot de dessin animé espiègle : voix aiguë, vive, rieuse, un peu "
+        "mécanique",
+    ),
+    "robote": (
+        300,
+        240.0,
+        4000.0,
+        0.45,
+        "comme une petite robote de dessin animé espiègle : voix aiguë, vive, rieuse, un peu "
         "mécanique",
     ),
     "gros_robot": (

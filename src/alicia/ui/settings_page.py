@@ -91,6 +91,10 @@ OPENAI_VOICES = (
     ("alloy", "Alloy — neutre"),
     ("verse", "Verse — dynamique"),
     ("cedar", "Cedar — voix grave"),
+    ("ash", "Ash — posée"),
+    ("echo", "Echo — claire"),
+    ("fable", "Fable — conteuse"),
+    ("onyx", "Onyx — très grave"),
 )
 SENSITIVITY = {
     1: "Peu sensible (pièce bruyante, casque ouvert)",
@@ -1154,7 +1158,8 @@ class SettingsPage(QWidget):
         grid.addWidget(
             _muted(
                 "Écoute chaque voix avec la même phrase, puis choisis-la. Edge : gratuit, en "
-                "ligne. Gemini : ta clé Gemini (modèle en préversion, quota gratuit limité)."
+                "ligne. Gemini : ta clé Gemini (modèle en préversion, quota gratuit limité). "
+                "ChatGPT : ta clé OpenAI (payant à l'usage, quelques centimes par heure)."
             ),
             1,
             0,
@@ -1167,6 +1172,7 @@ class SettingsPage(QWidget):
             ("enfant", "🧒 Enfant : plus aiguë, plus jeune"),
             ("robot", "🤖 Petit robot : métallique, un peu aiguë"),
             ("robot_enfant", "🤖 VIIRUS : petit garçon robot, aigu et espiègle"),
+            ("robote", "🤖 ALICIA : petite robote, aiguë et rieuse (voix féminine)"),
             ("gros_robot", "🦾 Gros robot : grave et métallique"),
         ):
             self.effect_box.addItem(label, key)
@@ -1186,12 +1192,33 @@ class SettingsPage(QWidget):
             1,
             4,
         )
+        self.voice_style = QLineEdit()
+        self.voice_style.setPlaceholderText(
+            "ex. comme une petite robote espiègle : voix aiguë, rieuse, un peu mécanique"
+        )
+        self.voice_style.editingFinished.connect(
+            lambda: self._emit("voice_style", self.voice_style.text())
+        )
+        grid.addWidget(QLabel("Jeu de voix"), 4, 0)
+        grid.addWidget(self.voice_style, 4, 1, 1, 3)
+        grid.addWidget(
+            _muted(
+                "Consigne libre pour les voix ChatGPT et Gemini : décris comment parler (âge "
+                "apparent, robot, énergie, ton…). Elle remplace la consigne de l'effet ; l'effet "
+                "sonore (hauteur, métal) s'applique toujours. Vide = consigne de l'effet."
+            ),
+            5,
+            0,
+            1,
+            4,
+        )
         self.gallery_buttons: dict[str, QPushButton] = {}
         self.gallery_sections: dict[str, QWidget] = {}
-        row = 4
+        row = 6
         for engine, title, voices in (
             ("edge", "Voix Edge (Microsoft)", [(n, label) for n, label in EDGE_VOICES]),
             ("gemini", "Voix Gemini (Google)", [(n, f"{n} — {d}") for n, d in GEMINI_VOICES]),
+            ("openai", "Voix ChatGPT (OpenAI, clé OpenAI)", list(OPENAI_VOICES)),
         ):
             body = QWidget()
             inner = QGridLayout(body)
@@ -1373,9 +1400,14 @@ class SettingsPage(QWidget):
                 self.gemini_voice_box.findData(voice.gemini_voice)
             )
             self.effect_box.setCurrentIndex(max(0, self.effect_box.findData(voice.voice_effect)))
+            self.voice_style.setText(voice.voice_style)
             self.volume.setValue(voice.volume)
             self.volume_label.setText(f"{voice.volume} %")
-            chosen = {"edge": voice.tts_voice, "gemini": voice.gemini_voice}.get(voice.tts_engine)
+            chosen = {
+                "edge": voice.tts_voice,
+                "gemini": voice.gemini_voice,
+                "openai": voice.openai_voice,
+            }.get(voice.tts_engine)
             self.mark_chosen_voice(f"{voice.tts_engine}|{chosen}" if chosen else "")
             percent = rate_percent(voice.tts_rate)
             self.speed.setValue(percent)

@@ -864,7 +864,9 @@ class MainWindow(QMainWindow):
                 "tts_rate",
                 "kokoro_speed",
                 "gemini_voice",
+                "openai_voice",
                 "voice_effect",
+                "voice_style",
             } & changes.keys():
                 speaker.synthesizer = make_synthesizer(voice)
                 speaker.warm_up_async()
@@ -936,13 +938,15 @@ class MainWindow(QMainWindow):
                 self._update_voice(volume=volume)
         elif key == "voice_effect":
             self._update_voice(voice_effect=str(value or ""))
+        elif key == "voice_style":
+            self._update_voice(voice_style=" ".join(str(value or "").split())[:300])
         elif key == "voice_preview":
             self.preview_voice(str(value))
         elif key == "voice_choose":
             from alicia.core.audio.voice_design import voice_name
 
             engine, _, name = str(value).partition("|")
-            field = "gemini_voice" if engine == "gemini" else "tts_voice"
+            field = {"gemini": "gemini_voice", "openai": "openai_voice"}.get(engine, "tts_voice")
             self._update_voice(tts_engine=engine, **{field: name})
             self._load_settings_page()
             self._notify(f"Voix choisie : {voice_name(name)}")
@@ -1247,7 +1251,7 @@ class MainWindow(QMainWindow):
 
         engine, _, name = key.partition("|")
         voice = self.services.settings.voice
-        field = "gemini_voice" if engine == "gemini" else "tts_voice"
+        field = {"gemini": "gemini_voice", "openai": "openai_voice"}.get(engine, "tts_voice")
         trial = replace(voice, tts_engine=engine, **{field: name})  # type: ignore[arg-type]
         speaker = self.services.speaker
         text = (
@@ -1616,7 +1620,7 @@ class MainWindow(QMainWindow):
             thread.join(wait)
 
     def _duo_ping(self) -> None:
-        """Signal de présence, toutes les minutes tant que le duo est actif."""
+        """Signal de présence, toutes les 10 minutes tant que le duo est actif."""
         link = self.duo_link
         if link is not None:
             data = self._hello_data()
@@ -1687,7 +1691,14 @@ class MainWindow(QMainWindow):
                 "close": "C'est fermé.",
             }
             return ActionReply(texts[guide], f"guide_{guide}", done=True)
+        from alicia.core.persona import parse_name_command
         from alicia.stream.chat import parse_stream_command
+
+        name = parse_name_command(text)  # « je m'appelle Yannick » : retenu pour toujours
+        if name is not None:
+            return ActionReply(
+                f"Enchanté {name}, je m'en souviendrai.", f"player_name:{name}", done=True
+            )
 
         live = parse_stream_command(text)  # « active / coupe le mode stream »
         if live is not None:
@@ -3447,6 +3458,9 @@ class MainWindow(QMainWindow):
             return
         if reply.intent in ("copilot_on", "copilot_off"):
             self.set_copilot(reply.intent == "copilot_on")
+        if reply.intent.startswith("player_name:"):
+            self.change_setting("player_name", reply.intent.split(":", 1)[1])
+            self.settings_page.player_name.setText(self.services.settings.player.name)
         if reply.intent in ("stream_on", "stream_off"):
             self.set_stream_mode(reply.intent == "stream_on", save=True)
             if reply.intent == "stream_on" and not self.stream_mode.enabled:

@@ -7,6 +7,7 @@ restent communs. Le personnage est fixé au démarrage (changer = redémarrer).
 
 from __future__ import annotations
 
+import re
 from dataclasses import dataclass, field
 
 
@@ -181,3 +182,34 @@ def pronounce(text: str) -> str:
     for written, spoken in sorted(_pronunciations.items(), key=lambda kv: -len(kv[0])):
         text = re.sub(rf"(?<!\w){re.escape(written)}(?!\w)", spoken, text, flags=re.IGNORECASE)
     return text
+
+
+_MY_NAME = re.compile(
+    r"(?:^|\s)(?:je m'?appelle|je m appelle|appelle[- ]moi|mon (?:pre)?nom c'?est|"
+    r"mon (?:pre)?nom est|mon pseudo c'?est|mon pseudo est)\s+([a-z][a-z'-]{1,24})\s*$"
+)
+
+
+def parse_name_command(text: str) -> str | None:
+    """« Je m'appelle Yannick » / « appelle-moi Yannick » → "Yannick" (sinon None)."""
+    import unicodedata
+
+    plain = unicodedata.normalize("NFKD", text.casefold())
+    plain = "".join(c for c in plain if not unicodedata.combining(c))
+    plain = re.sub(r"[^\w\s'-]", " ", plain).strip()
+    if len(plain.split()) > 8:
+        return None
+    match = _MY_NAME.search(plain)
+    if match is None:
+        return None
+    word = match.group(1)
+    # Reprendre l'écriture d'origine (accents, majuscules) du mot dans la phrase
+    original = next((w for w in re.findall(r"[\w'-]+", text) if _strip(w).casefold() == word), word)
+    return original[:1].upper() + original[1:]
+
+
+def _strip(word: str) -> str:
+    import unicodedata
+
+    word = unicodedata.normalize("NFKD", word)
+    return "".join(c for c in word if not unicodedata.combining(c))

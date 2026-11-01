@@ -1,7 +1,9 @@
 """Présence du Duo : savoir en un coup d'œil si l'autre robot est là.
 
-Chaque robot envoie un petit signal (« ping ») toutes les minutes tant que le duo est actif,
-et « bye » quand il s'arrête. Sans nouvelles depuis 3 minutes, l'autre est « absent ».
+Chaque robot envoie un petit signal (« ping ») toutes les 10 minutes tant que le duo est
+actif, et « bye » quand il s'arrête. Sans nouvelles depuis 25 minutes, l'autre est « absent ».
+(Le relais gratuit ntfy.sh limite le nombre de messages par jour : un ping par minute
+l'épuisait en quelques heures, et plus aucun message du duo ne passait.)
 
 États (extensibles) : off, connecting, present, speaking, absent, unavailable.
 """
@@ -10,8 +12,8 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
-PING_S = 60.0  # un signal par minute
-ABSENT_AFTER_S = 180.0  # sans nouvelles depuis 3 min : absent
+PING_S = 600.0  # un signal toutes les 10 min
+ABSENT_AFTER_S = 1500.0  # sans nouvelles depuis 25 min : absent
 
 LABELS = {
     "off": "Duo désactivé",

@@ -145,7 +145,11 @@ class DuoLink:
         self._stop.set()
         self.connected = False
 
+    limited_until = 0.0  # relais saturé (429) : pas de ping avant cette heure
+
     def send(self, kind: str, **data: object) -> bool:
+        if kind == "ping" and time.time() < self.limited_until:
+            return False
         message = {
             "v": 1,
             "kind": kind,
@@ -161,7 +165,14 @@ class DuoLink:
                 response = client.post(self.url, content=self.keys.seal(message).encode())
             response.raise_for_status()
         except httpx.HTTPError as exc:
-            log.warning("Duo : message non envoyé (%r)", exc)
+            status = getattr(getattr(exc, "response", None), "status_code", None)
+            if status == 429:
+                # Quota du relais atteint : plus de pings pendant 1 h, pour garder la place
+                # aux vrais messages (questions, transmissions).
+                self.limited_until = time.time() + 3600
+                log.warning("Duo : relais saturé (429), pings suspendus 1 h")
+            else:
+                log.warning("Duo : message non envoyé (%r)", exc)
             return False
         log.info("Duo : message « %s » envoyé", kind)
         return True

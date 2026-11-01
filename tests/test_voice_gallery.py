@@ -80,7 +80,7 @@ def test_gallery_previews_without_choosing_then_chooses(qt_app, tmp_path, monkey
     window = MainWindow(build_services(settings, demo=True, speaker=speaker))
     try:
         page = window.settings_page
-        assert len(page.gallery_buttons) == 13 + 30
+        assert len(page.gallery_buttons) == 13 + 30 + 13
         before = window.services.settings.voice.tts_engine
         window.change_setting("voice_preview", "edge|fr-FR-EloiseNeural")
         assert speaker.said and callable(speaker.said[-1][1])  # voix d'essai, pas la sienne
@@ -167,3 +167,31 @@ def test_voice_volume(qt_app, tmp_path, monkeypatch):
         assert saved["voice"]["volume"] == 140
     finally:
         window.close()
+
+
+def test_openai_voices_are_in_the_catalogue_and_choosable(qt_app, tmp_path, monkeypatch):
+    from alicia.app import build_services
+    from alicia.core.config import load_settings
+    from alicia.ui.main_window import MainWindow
+
+    monkeypatch.chdir(tmp_path)
+    window = MainWindow(
+        build_services(load_settings(environ={"ALICE_AI_PROVIDER": "fake"}), demo=True)
+    )
+    try:
+        window.show_page(2)
+        assert "openai|onyx" in window.settings_page.gallery_buttons
+        window.change_setting("voice_choose", "openai|onyx")
+        voice = window.services.settings.voice
+        assert voice.tts_engine == "openai" and voice.openai_voice == "onyx"
+    finally:
+        window.close()
+
+
+def test_player_can_say_their_name():
+    from alicia.core.persona import parse_name_command
+
+    assert parse_name_command("Je m'appelle Yannick") == "Yannick"
+    assert parse_name_command("Alicia, appelle-moi Nova.") == "Nova"
+    assert parse_name_command("mon prénom c'est Jérôme") == "Jérôme"
+    assert parse_name_command("comment tu t'appelles ?") is None
