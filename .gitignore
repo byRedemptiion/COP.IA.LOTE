@@ -1,6 +1,6 @@
 # Secrets et réglages locaux
 .env
-alice.toml
+alicia.toml
 
 # Python / uv
 __pycache__/

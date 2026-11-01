@@ -3,9 +3,9 @@ requires = ["hatchling>=1.27,<2"]
 build-backend = "hatchling.build"
 
 [project]
-name = "alice-copilot"
-version = "0.1.0"
-description = "Alice : copilote IA qui observe une fenêtre de jeu sous Windows et conseille le joueur"
+name = "alicia-copilot"
+version = "0.11.2"
+description = "COP'IA'LOTE : copilote IA pour jeux vidéo sous Windows (profils ALICIA et VERIS)"
 readme = "README.md"
 requires-python = ">=3.12,<3.14"
 dependencies = [
@@ -15,17 +15,27 @@ dependencies = [
   "httpx>=0.28,<1",
   "python-dotenv>=1,<2",
   "windows-capture>=2.0,<3; sys_platform == 'win32'",
+  "sounddevice>=0.5,<0.6",
+  "edge-tts>=7.2,<8",
+  "miniaudio>=1.60,<2",
+  "kokoro-onnx>=0.6,<0.7",
+  "faster-whisper>=1.2,<2",
+  "pycaw>=20240316 ; sys_platform == 'win32'",
 ]
 
 [project.optional-dependencies]
 dev = ["pytest>=8,<10", "ruff>=0.11,<1"]
 
 [project.scripts]
-alice = "alice.__main__:main"
-alice-diag = "alice.diag:main"
+alicia = "alicia.__main__:main"
+alicia-diag = "alicia.diag:main"
+
+[project.gui-scripts]
+# Même programme, sans fenêtre de terminal (lancé par Lancer_Alicia.bat).
+alicia-gui = "alicia.__main__:main"
 
 [tool.hatch.build.targets.wheel]
-packages = ["src/alice"]
+packages = ["src/alicia"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

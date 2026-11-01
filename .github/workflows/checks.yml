@@ -22,7 +22,32 @@ jobs:
       - run: uv sync --python 3.12 --frozen --extra dev
       - run: uv run --frozen ruff check src tests
       - run: uv run --frozen pytest -q
-      - run: uv run --frozen alice --smoke-test
+      - run: uv run --frozen alicia --smoke-test
       - name: Windows capture module loads
         if: runner.os == 'Windows'
         run: uv run --frozen python -c "import windows_capture; print('ok')"
+
+  installer:
+    # L'installateur partageable ALICIA-Setup.exe, publié à un lien fixe :
+    # https://github.com/<dépôt>/releases/download/installer-latest/ALICIA-Setup.exe
+    needs: test
+    if: github.event_name == 'push' && (github.ref == 'refs/heads/alice-v0.3' || github.ref == 'refs/heads/main')
+    runs-on: windows-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+      - name: Inno Setup
+        run: |
+          if (-not (Test-Path "${env:ProgramFiles(x86)}\Inno Setup 6\ISCC.exe")) { choco install innosetup -y --no-progress }
+      - name: Construire ALICIA-Setup.exe
+        env:
+          ALICIA_BRANCH: ${{ github.ref_name }}
+        run: ./installer/build.ps1
+      - name: Publier
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release delete installer-latest --yes --cleanup-tag 2>$null
+          $notes = "Installateur d'ALICIA (branche ${{ github.ref_name }}, commit ${{ github.sha }}). Télécharge ALICIA-Setup.exe et double-clique : tu choisis ton IA pendant l'installation."
+          gh release create installer-latest dist/ALICIA-Setup.exe --title "ALICIA — installateur" --notes $notes --prerelease --target ${{ github.sha }}

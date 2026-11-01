@@ -1,0 +1,314 @@
+<!doctype html>
+<html lang="fr">
+<head>
+<meta charset="utf-8">
+<title>Overlay</title>
+<style>
+  :root {
+    --accent: #ff3d8b; --cyan: #22e3ff; --soft: #ff8cc0; --gold: #f5b62a;
+    --text: #e9eeff; --deep: #0a1240; --state: var(--accent); --size: 260px; --level: 0;
+  }
+  html, body { margin: 0; height: 100%; overflow: hidden; background: transparent; }
+  body { font-family: "Bahnschrift", "Segoe UI", Arial, sans-serif; }
+
+  /* Le personnage : position (promenade), flottement, gestes, réaction à la voix */
+  #walker {
+    position: absolute; left: 50%; top: 50%;
+    width: var(--size); height: var(--size);
+    transform: translate(-50%, -50%);
+    transition: left 6s cubic-bezier(.45,.05,.35,1), top 6s cubic-bezier(.45,.05,.35,1);
+  }
+  #float { width: 100%; height: 100%; animation: float 5.5s ease-in-out infinite; }
+  #gesture { width: 100%; height: 100%; transform-origin: 50% 80%; }
+  #body {
+    position: relative; width: 100%; height: 100%;
+    transform: scale(calc(1 + var(--level) * 0.07)) rotate(var(--tilt, 0deg));
+    transition: transform .09s linear, rotate .8s ease;
+  }
+
+  .ring, .portrait, .halo { position: absolute; border-radius: 50%; }
+  .halo {
+    inset: 2%;
+    box-shadow: 0 0 calc(18px + var(--level) * 40px) calc(2px + var(--level) * 10px) var(--state);
+    opacity: calc(.55 + var(--level) * .45);
+    transition: box-shadow .12s linear, opacity .12s linear;
+  }
+  .ring.main {
+    inset: 3%;
+    border: calc(var(--size) * .018) solid var(--state);
+    transition: border-color .4s ease;
+  }
+  .ring.dash {
+    inset: -3%;
+    border: calc(var(--size) * .012) dashed var(--state);
+    opacity: .55;
+    animation: spin 22s linear infinite;
+  }
+  .ring.arc {
+    inset: -9%;
+    border: calc(var(--size) * .01) solid transparent;
+    border-top-color: var(--state); border-bottom-color: var(--state);
+    opacity: .35;
+    animation: spin 14s linear infinite reverse;
+  }
+  .portrait {
+    inset: 6%;
+    background-color: var(--deep);
+    background-repeat: no-repeat;
+    box-shadow: inset 0 0 calc(var(--size) * .08) rgba(0,0,0,.65);
+    overflow: hidden;
+  }
+  .portrait video, .portrait img { width: 100%; height: 100%; object-fit: cover; display: none; }
+  .portrait.has-anim { background-image: none !important; }
+  .portrait.has-anim.is-video video, .portrait.has-anim.is-image img { display: block; }
+
+  /* États */
+  body.listening .ring.dash { animation-duration: 6s; opacity: .85; }
+  body.listening .halo { animation: breathe 1.4s ease-in-out infinite; }
+  body.thinking .ring.dash { animation-duration: 2.2s; opacity: .95; }
+  body.thinking .ring.arc { animation-duration: 1.6s; opacity: .7; }
+  body.speaking .ring.arc { animation-duration: 5s; opacity: .6; }
+  body.error #gesture { animation: shake .5s ease 2; }
+  body.idle .ring.dash { opacity: .35; }
+
+  /* Gestes (déclenchés par ALICIA, ou au hasard quand elle est inactive) */
+  .g-nod { animation: nod .9s ease; }
+  .g-shake { animation: shake .8s ease; }
+  .g-hop { animation: hop .7s cubic-bezier(.3,1.6,.5,1); }
+  .g-spin { animation: twirl 1.1s ease-in-out; }
+  .g-wiggle { animation: wiggle 1s ease; }
+  .g-look { animation: look 2.4s ease-in-out; }
+
+  @keyframes float { 0%,100% { transform: translateY(0) } 50% { transform: translateY(calc(var(--size) * -.045)) } }
+  @keyframes spin { to { transform: rotate(360deg) } }
+  @keyframes breathe { 0%,100% { opacity: .55 } 50% { opacity: 1 } }
+  @keyframes nod { 0%,100% { transform: none } 25% { transform: translateY(6%) rotate(4deg) }
+                   50% { transform: translateY(-1%) } 75% { transform: translateY(5%) rotate(3deg) } }
+  @keyframes shake { 0%,100% { transform: none } 20%,60% { transform: translateX(-5%) rotate(-4deg) }
+                     40%,80% { transform: translateX(5%) rotate(4deg) } }
+  @keyframes hop { 0%,100% { transform: none } 40% { transform: translateY(-16%) scale(1.04) } }
+  @keyframes twirl { from { transform: rotate(0) } to { transform: rotate(360deg) } }
+  @keyframes wiggle { 0%,100% { transform: none } 25% { transform: rotate(-7deg) } 75% { transform: rotate(7deg) } }
+  @keyframes look { 0%,100% { transform: none } 30%,70% { transform: translateX(var(--look, 6%)) rotate(var(--lookr, 5deg)) } }
+
+  /* Sous-titres */
+  #bubble {
+    position: absolute; left: 50%; top: calc(100% + var(--size) * .14);
+    transform: translateX(-50%) translateY(6px);
+    width: max-content; max-width: min(calc(var(--size) * 2.4), 90vw);
+    padding: 10px 16px; border-radius: 16px;
+    background: linear-gradient(180deg, rgba(var(--deep-rgb), .92), rgba(var(--deep-rgb), .82));
+    border: 1px solid var(--accent);
+    box-shadow: 0 0 18px rgba(0,0,0,.45);
+    color: var(--text); font-size: calc(var(--size) * .07); line-height: 1.35;
+    opacity: 0; transition: opacity .35s ease, transform .35s ease;
+    pointer-events: none; text-align: left;
+  }
+  #bubble.show { opacity: 1; transform: translateX(-50%) translateY(0); }
+  #bubble.top { top: auto; bottom: calc(100% + var(--size) * .14); }
+  #asked { color: var(--gold); font-size: .82em; margin-bottom: 3px; }
+  #asked:empty { display: none; }
+  #said { white-space: pre-wrap; }
+</style>
+</head>
+<body class="idle">
+<div id="walker">
+  <div id="float"><div id="gesture"><div id="body">
+    <div class="halo"></div>
+    <div class="ring arc"></div>
+    <div class="ring dash"></div>
+    <div class="ring main"></div>
+    <div class="portrait" id="portrait"><video id="anim" muted playsinline></video><img id="animimg" alt=""></div>
+  </div></div></div>
+  <div id="bubble"><div id="asked"></div><div id="said"></div></div>
+</div>
+<script>
+const CONFIG = /*CONFIG*/{};
+const params = new URLSearchParams(location.search);
+const size = Math.max(80, Math.min(1200, +params.get("size") || 260));
+const withBubble = params.get("bulle") !== "0";
+const roam = params.get("roam") === "1";
+const root = document.documentElement.style;
+const body = document.body;
+const $ = (id) => document.getElementById(id);
+
+// --- personnage choisi (ALICIA / VIIRUS) : couleurs, portrait, cadrage ----------------------
+const colors = CONFIG.colors || {};
+for (const [key, value] of Object.entries(colors)) root.setProperty("--" + key, value);
+root.setProperty("--size", size + "px");
+const deep = (colors.deep || "#0a1240").replace("#", "");
+root.setProperty("--deep-rgb", [0, 2, 4].map((i) => parseInt(deep.slice(i, i + 2), 16)).join(","));
+const states = CONFIG.states || {};
+const portrait = $("portrait");
+const [fx, fy, fw, fh] = CONFIG.crop || [0, 0, 1, 1];
+portrait.style.backgroundImage = "url(/portrait)";
+portrait.style.backgroundSize = `${100 / fw}% ${100 / fh}%`;
+portrait.style.backgroundPosition =
+  `${fw < 1 ? (fx / (1 - fw)) * 100 : 0}% ${fh < 1 ? (fy / (1 - fh)) * 100 : 0}%`;
+if (params.get("side") === "top") $("bubble").classList.add("top");
+
+// --- animations (facultatives) : %LOCALAPPDATA%\Alicia\anims\<robot>\<état>.webp -------
+// États en boucle (idle, listening, thinking, speaking, action, error), gestes joués une
+// fois (wake, nod, shake, hop, spin, wiggle, look), bouche : speaking_0/1/2.png.
+const anims = new Set(CONFIG.anims || []);
+const video = $("anim");
+const img = $("animimg");
+let playing = "";
+let onceTimer = 0;
+const lips = ["speaking_0.png", "speaking_1.png", "speaking_2.png"].filter((f) => anims.has(f));
+const hasLips = lips.length >= 2 && lips[0] === "speaking_0.png";
+lips.forEach((f) => { new Image().src = "/anim/" + f; });  // préchargées : pas de clignotement
+function playAnim(name, loop = true) {
+  const file = [".webm", ".webp", ".gif", ".png", ".mp4"].map((e) => name + e).find((f) => anims.has(f));
+  if (!file) return false;
+  if (playing !== file) {
+    playing = file;
+    const isVideo = /\.(webm|mp4)$/.test(file);
+    portrait.classList.toggle("is-video", isVideo);
+    portrait.classList.toggle("is-image", !isVideo);
+    if (isVideo) {
+      video.src = "/anim/" + encodeURIComponent(file);
+      video.loop = loop;
+      video.play().catch(() => {});
+    } else {
+      video.pause();
+      img.src = "/anim/" + encodeURIComponent(file) + (loop ? "" : "?t=" + Date.now());
+    }
+  }
+  portrait.classList.add("has-anim");
+  return true;
+}
+function stateAnim(state) {
+  if (!playAnim(state) && !playAnim("idle")) portrait.classList.remove("has-anim");
+}
+function gestureAnim(name) {
+  if (!playAnim(name, false)) return;
+  clearTimeout(onceTimer);
+  // Image animée : on revient à l'état après sa durée (CONFIG.durations, sinon 2 s)
+  if (!/\.(webm|mp4)$/.test(playing)) {
+    onceTimer = setTimeout(() => { playing = ""; stateAnim(current); },
+      (CONFIG.durations || {})[name] || 2000);
+  }
+}
+video.addEventListener("ended", () => { playing = ""; stateAnim(current); });
+function lipSync(level) {
+  if (!hasLips || current !== "speaking") return;
+  const frame = lips[Math.min(lips.length - 1, Math.floor(level * lips.length * 1.6))];
+  portrait.classList.add("has-anim", "is-image");
+  portrait.classList.remove("is-video");
+  playing = frame;
+  img.src = "/anim/" + frame;
+}
+
+// --- état, voix, gestes ---------------------------------------------------------------------
+let current = "idle";
+let lastActivity = Date.now();
+function setState(state) {
+  body.className = state;
+  current = state;
+  root.setProperty("--state", states[state] || colors.accent || "#ff3d8b");
+  if (state !== "speaking") root.setProperty("--level", 0);
+  if (state !== "idle") lastActivity = Date.now();
+  stateAnim(state);
+}
+function gesture(name) {
+  if ([".webm", ".webp", ".gif", ".png", ".mp4"].some((e) => anims.has(name + e))) {
+    gestureAnim(name);  // le geste dessiné par toi remplace le petit mouvement
+    return;
+  }
+  const el = $("gesture");
+  el.className = "";
+  void el.offsetWidth;  // relance l'animation même si c'est la même
+  el.className = "g-" + name;
+}
+$("gesture").addEventListener("animationend", (e) => {
+  if (e.target === $("gesture")) $("gesture").className = "";
+});
+
+// --- sous-titres ----------------------------------------------------------------------------
+let hideTimer = 0;
+function showText(question, text) {
+  if (!withBubble) return;
+  clearTimeout(hideTimer);
+  if (question !== undefined) $("asked").textContent = question ? "› " + question : "";
+  if (text !== undefined) $("said").textContent = tail(text);
+  $("bubble").classList.toggle("show", !!($("asked").textContent || $("said").textContent));
+}
+function hideText(afterMs) {
+  clearTimeout(hideTimer);
+  hideTimer = setTimeout(() => $("bubble").classList.remove("show"), Math.max(0, afterMs || 0));
+}
+function tail(text) {
+  text = (text || "").replace(/\*\*/g, "");
+  return text.length > 260 ? "…" + text.slice(-260).replace(/^\S*\s/, "") : text;
+}
+
+// --- vie quand elle ne parle pas : petits gestes et promenade au hasard ----------------------
+const idleGestures = ["look", "look", "wiggle", "hop", "nod"];
+function idleLife() {
+  if (current === "idle" && Date.now() - lastActivity > 4000) {
+    const name = idleGestures[Math.floor(Math.random() * idleGestures.length)];
+    if (name === "look") {
+      const side = Math.random() < 0.5 ? -1 : 1;
+      root.setProperty("--look", side * 6 + "%");
+      root.setProperty("--lookr", side * 6 + "deg");
+    }
+    gesture(name);
+  }
+  setTimeout(idleLife, 7000 + Math.random() * 11000);
+}
+setTimeout(idleLife, 5000);
+
+function wander() {
+  if (roam && (current === "idle" || Math.random() < 0.3)) {
+    const margin = size * 0.75;
+    const w = Math.max(window.innerWidth - 2 * margin, 1);
+    const h = Math.max(window.innerHeight - 2 * margin - (withBubble ? size * 0.6 : 0), 1);
+    $("walker").style.left = margin + Math.random() * w + "px";
+    $("walker").style.top = margin + Math.random() * h + "px";
+  }
+  setTimeout(wander, 15000 + Math.random() * 25000);
+}
+if (roam) setTimeout(wander, 3000);
+
+// --- sa voix dans OBS (option) : chaque phrase est jouée par cette page, qui a sa propre
+// piste dans le mélangeur d'OBS (cocher « Contrôler l'audio via OBS » dans la source).
+const voiceQueue = [];
+let voicePlaying = false;
+function queueVoice(id) {
+  voiceQueue.push(id);
+  if (voiceQueue.length > 6) voiceQueue.shift();  // en retard : on saute plutôt que d'accumuler
+  if (!voicePlaying) playVoice();
+}
+function playVoice() {
+  const id = voiceQueue.shift();
+  if (id === undefined) { voicePlaying = false; return; }
+  voicePlaying = true;
+  const audio = new Audio("/audio/" + id + ".wav");
+  audio.onended = audio.onerror = playVoice;
+  audio.play().catch(playVoice);
+}
+
+// --- connexion à ALICIA ---------------------------------------------------------------------
+function connect() {
+  const events = new EventSource("/events");
+  events.onmessage = (e) => {
+    const msg = JSON.parse(e.data);
+    if (msg.type === "state") setState(msg.state);
+    else if (msg.type === "level") {
+      const level = Math.min(1, Math.max(0, msg.value));
+      root.setProperty("--level", level);
+      lipSync(level);
+    }
+    else if (msg.type === "text") showText(msg.question, msg.text);
+    else if (msg.type === "hide") hideText(msg.after_ms);
+    else if (msg.type === "gesture") gesture(msg.name);
+    else if (msg.type === "reload") location.reload();
+    else if (msg.type === "audio") queueVoice(msg.id);
+  };
+}
+setState("idle");
+connect();
+</script>
+</body>
+</html>

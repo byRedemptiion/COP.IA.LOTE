@@ -3,8 +3,8 @@ from pathlib import Path
 
 import pytest
 
-from alice.core.config import Secret, load_settings
-from alice.core.errors import ConfigError
+from alicia.core.config import Secret, load_settings
+from alicia.core.errors import ConfigError
 
 
 def test_defaults_without_any_file(tmp_path):
@@ -18,7 +18,7 @@ def test_defaults_without_any_file(tmp_path):
 
 def test_env_file_key_and_toml_override(tmp_path):
     (tmp_path / ".env").write_text("GEMINI_API_KEY=abc123\n", encoding="utf-8")
-    (tmp_path / "alice.toml").write_text(
+    (tmp_path / "alicia.toml").write_text(
         '[ai.gemini]\nmodel = "gemini-flash-lite-latest"\nthinking_budget = 0\n'
         "[capture]\nmax_image_side = 1024\n",
         encoding="utf-8",
@@ -51,10 +51,10 @@ def test_secret_is_never_printed():
 
 @pytest.mark.parametrize(
     "content",
-    ['[ai]\nprovider = "openai"\n', '[capture]\nbackend = "magic"\n', "[ai\nbroken"],
+    ['[ai]\nprovider = "chatgpt"\n', '[capture]\nbackend = "magic"\n', "[ai\nbroken"],
 )
 def test_invalid_config_is_reported(tmp_path, content):
-    (tmp_path / "alice.toml").write_text(content)
+    (tmp_path / "alicia.toml").write_text(content)
     with pytest.raises(ConfigError):
         load_settings(cwd=tmp_path, environ={}, user_dir=tmp_path / "none")
 
@@ -74,3 +74,18 @@ def test_no_api_key_committed_in_repository():
         text = path.read_text(encoding="utf-8", errors="ignore")
         for pattern in patterns:
             assert not pattern.search(text), f"clé API possible dans {path}"
+
+
+def test_legacy_alice_folders_and_toml_are_kept(tmp_path, monkeypatch):
+    from alicia.core.config import migrate_legacy_dirs
+
+    monkeypatch.setenv("XDG_STATE_HOME", str(tmp_path / "state"))
+    monkeypatch.setenv("LOCALAPPDATA", str(tmp_path / "state"))
+    old = tmp_path / "state" / "Alice" / "models"
+    old.mkdir(parents=True)
+    (old / "kokoro.onnx").write_text("x")
+    migrate_legacy_dirs()
+    assert (tmp_path / "state" / "Alicia" / "models" / "kokoro.onnx").is_file()
+    (tmp_path / "alice.toml").write_text("[capture]\nmax_image_side = 1000\n")
+    settings = load_settings(cwd=tmp_path, environ={}, user_dir=tmp_path / "none")
+    assert settings.capture.max_image_side == 1000

@@ -1,3 +1,6 @@
+> Historique : premier cahier des charges, quand le projet s'appelait « Alice ». Le projet
+> s'appelle aujourd'hui **COP'IA'LOTE**, avec les profils **ALICIA** et **VERIS**.
+
 **ALICE**
 
 **Cahier des charges pour Claude**

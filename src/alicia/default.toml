@@ -1,0 +1,170 @@
+# Réglages par défaut d'Alicia (non secrets).
+# Pour les modifier sans toucher à ce fichier : créer "alicia.toml" à la racine du projet
+# (ou dans %APPDATA%\Alicia\) avec seulement les clés à changer.
+
+[ai]
+provider = "gemini"          # gemini | openai | ollama | fake
+timeout_s = 25               # silence maximal (s) avant d'abandonner un modèle
+max_output_tokens = 1024
+temperature = 0.4
+history_turns = 3            # derniers échanges question/réponse renvoyés au modèle
+web_search = true            # recherche Google avant de répondre (case à cocher dans Alicia)
+
+[ai.gemini]
+# Alias maintenu par Google vers le dernier modèle Flash. "gemini-flash-lite-latest" = plus rapide.
+# Liste des modèles accessibles avec ta clé : alicia-diag models
+model = "gemini-flash-latest"
+# Modèles de secours, essayés dans l'ordre si le précédent est saturé (503), à court de
+# quota (429), muet trop longtemps ou introuvable. Le modèle utilisé s'affiche sous la réponse.
+fallback_models = ["gemini-flash-lite-latest"]
+base_url = "https://generativelanguage.googleapis.com/v1beta"
+# Réflexion interne réduite pour répondre plus vite (modèles Gemini 3.x).
+# Retirée automatiquement (et journalisée) si le modèle ne la prend pas en charge.
+thinking_level = "low"
+# thinking_budget = 0        # équivalent pour les modèles 2.5
+
+[ai.openai]
+# API d'OpenAI (ChatGPT) : clé sur https://platform.openai.com/api-keys, facturée à part de
+# l'abonnement ChatGPT (crédit prépayé). Clé dans .env : OPENAI_API_KEY=...
+model = "gpt-6-luna"         # voit les images, recherche web ; "gpt-6.1-terra" = plus précis
+base_url = "https://api.openai.com/v1"
+reasoning_effort = "low"     # none | low | medium : plus bas = plus rapide
+
+[ai.ollama]
+model = "qwen2.5vl:7b"
+base_url = "http://127.0.0.1:11434"
+keep_alive = "2m"   # modèle libéré 2 min après la dernière question (mémoire, chaleur)
+num_thread = 0       # cœurs du processeur pour Ollama : 0 = la moitié (6 au plus)
+num_ctx = 8192       # contexte : 8K suffit et laisse de la VRAM au jeu (Ollama met 32K par défaut)
+
+[capture]
+backend = "auto"             # auto | wgc | printwindow
+monitor_fallback = true      # plein écran : capture de l'écran du jeu si la fenêtre sort noire
+max_image_side = 2048        # px, grand côté de l'image envoyée à l'IA (petits textes lisibles)
+jpeg_quality = 88
+keep_last_frames = 5
+save_captures = false        # true = copie de chaque capture analysée dans le dossier captures/
+timeout_s = 2.0
+# Ce que regarde ALICIA (aussi dans Réglages et le menu du rond) :
+#   "window" = l'application (le jeu), "cursor" = une zone autour du curseur de la souris,
+#   "screen" = l'écran entier (celui du jeu, sinon celui du curseur)
+mode = "window"
+cursor_box = "1280x800"      # taille de la zone autour du curseur
+# Vision en direct : une capture récente est toujours prête (en mémoire, jamais envoyée
+# sans question). Quand tu parles, l'IA voit l'écran du moment où tu as commencé.
+live = true
+live_interval_s = 10.0
+# Mémoire de partie : une petite image toutes les 30 s (pendant la vision en direct), pour
+# répondre à « il y a une heure… ». Effacées après 20 h, 10 000 images au plus.
+memory = true
+memory_interval_s = 30
+memory_hours = 20
+memory_max_images = 10000
+memory_clear_on_exit = false
+memory_folder = ""           # vide = dossier d'ALICIA ; sinon par ex. "D:/ALICIA-memoire"
+memory_max_gb = 5            # place maximale sur le disque
+
+[logging]
+level = "INFO"               # INFO | DEBUG
+
+[ui]
+# "orb" : seul le rond d'ALICIA reste à l'écran, toujours au-dessus ; ses paroles
+# s'affichent dans une bulle seulement quand elle te répond. Double-clic = panneau complet.
+# "full" : la fenêtre complète (choix de la fenêtre, aperçu, journal).
+mode = "orb"
+# Personnage : "alicia" ou "veris" (nom, mot de réveil, portrait, couleurs, voix).
+persona = "alicia"
+# true : le rond et la bulle apparaissent dans OBS / Discord (stream). Par défaut ils sont
+# cachés des captures, pour que l'IA ne les voie pas non plus.
+stream_visible = false
+orb_size = 210               # diamètre du rond, en pixels (120 à 600)
+
+[update]
+# Bouton « MAJ » : ALICIA se met à jour depuis ce dépôt GitHub et cette branche.
+# Dépôt privé : ajoute ALICIA_GITHUB_TOKEN=... (jeton en lecture seule) dans .env.
+repo = "byRedemptiion/COP.IA.LOTE"
+branch = "alice-v0.3"
+check_on_start = true        # vérifie au lancement (discret) et signale une nouvelle version
+
+[hotkeys]
+# Raccourci global : pressé EN JEU, il capture la fenêtre active et lance l'analyse
+# (avec la question tapée dans Alicia, sinon une question générale). Vide = désactivé.
+# Exemples : "F9", "ctrl+F9", "alt+shift+A". Le jeu ne reçoit plus cette touche.
+analyze = "F9"
+# Maintenir la touche EN JEU = parler à Alicia ; relâcher = capture + envoi de la question.
+# Appuyer pendant qu'Alicia parle la coupe.
+talk = "F10"
+
+[voice]
+speak_answers = true         # lire les réponses à voix haute (case à cocher dans Alicia)
+# Compréhension de ta voix :
+#   "local"  = faster-whisper sur ton processeur (gratuit, privé, n'importe quel cerveau IA)
+#   "gemini" = l'audio est envoyé à Gemini avec la capture (un seul appel)
+stt = "gemini"            # gemini : Gemini transcrit ta voix (~1 s) ; local : Whisper sur le PC (plus lent)
+# Modèle Whisper : "large-v3-turbo" (précis) ou "small" (plus rapide, moins précis)
+whisper_model = "large-v3-turbo"
+# Voix d'Alicia : "edge" (voix Microsoft en ligne), "kokoro" (voix locale, hors ligne) ou
+# "openai" (voix OpenAI très réaliste, payante à l'usage, clé OPENAI_API_KEY)
+tts_engine = "edge"
+kokoro_voice = "ff_siwis"    # voix française de Kokoro
+kokoro_speed = 1.05
+# Voix Microsoft Edge (gratuite, nécessite Internet). Autres voix FR : fr-FR-VivienneMultilingualNeural,
+# fr-FR-HenriNeural, fr-FR-EloiseNeural. Liste complète : alicia-diag voices
+tts_voice = "fr-FR-DeniseNeural"
+tts_rate = "+8%"             # vitesse de lecture
+output_device = ""           # vide = haut-parleur Windows par défaut, sinon une partie du nom
+input_device = ""            # vide = micro Windows par défaut, sinon une partie du nom
+max_record_s = 30            # durée maximale d'une question orale
+sample_rate = 16000
+# Réveil vocal : commence ta phrase par « Alicia » (« Alicia, lance Discord ») au lieu de F10.
+# Tout reste sur ton PC : rien n'est envoyé tant que le mot n'est pas dit. Case dans le panneau.
+wake_word = true
+wake_model = "base"          # petit Whisper dédié au mot de réveil ("tiny" = plus léger)
+
+[actions]
+# Actions sur le PC à la voix (F10) ou à l'écrit : éteindre, redémarrer, veille, verrouiller,
+# volume, lancer/fermer une appli de la liste, minuteur. Jamais d'action dans le jeu.
+enabled = true
+shutdown_delay_s = 20        # délai avant extinction/redémarrage (« annule » l'arrête)
+confirm_timeout_s = 20       # temps pour répondre « oui » à une confirmation
+
+# Applis que tu peux lancer/fermer à la voix : nom = { launch = chemin ou lien, process = .exe }
+[actions.apps]
+discord = { launch = "discord://", process = "Discord.exe" }
+spotify = { launch = "spotify:", process = "Spotify.exe" }
+steam = { launch = "steam://open/main", process = "steam.exe" }
+"battle.net" = { launch = "battlenet://", process = "Battle.net.exe" }
+youtube = { launch = "https://www.youtube.com", process = "" }   # s'ouvre dans ton navigateur
+twitch = { launch = "https://www.twitch.tv", process = "" }
+
+[game]
+# Jeu joué : "auto" le reconnaît à la fenêtre. Sinon le nom d'un profil
+# (overwatch, wow-forever…). Profils et sites de référence : alicia-diag games
+profile = "auto"
+
+[stream]
+# Chaîne Twitch (ex. "nova_jagger") : bouton « Chat Twitch » dans les réglages et le menu du rond.
+twitch_channel = ""
+# Présence sur le stream : une page à ajouter dans OBS (source « Navigateur »), fond
+# transparent, à l'adresse http://127.0.0.1:8765/overlay. Seulement sur ce PC.
+overlay = true
+overlay_port = 8765
+
+[duo]
+# Duo : deux robots COP'IA'LOTE qui se parlent (ex. ALICIA chez l'un, VIIRUS chez l'autre).
+# Le code de duo (le même sur les deux PC) est dans %APPDATA%\Alicia\.env (DUO_CODE) :
+# il chiffre les messages, qui passent par un relais public gratuit (ntfy.sh).
+enabled = false
+max_turns = 4
+allow_chat = false   # true : les robots se répondent tout seuls (dans la limite de max_turns)
+player = ""          # ton prénom, dit à l'autre joueur quand ton robot transmet un message
+provider = "main"    # IA du duo : main (la même que d'habitude), gemini, openai ou ollama
+key_slot = ""        # quelle clé (ex. GEMINI_API_KEY_2) ; vide = la clé utilisée
+relay = "https://ntfy.sh"
+
+[player]
+# Ton prénom ou pseudo : l'IA sait qui tu es et t'appelle par ton nom.
+name = ""
+# Comment la voix doit le dire, s'il est mal prononcé (ex. "Rédemm-chionne"). Vide = tel quel.
+phonetic = ""
+
