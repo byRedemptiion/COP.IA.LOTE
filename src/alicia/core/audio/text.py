@@ -71,7 +71,8 @@ class LiveSentences:
     La voix part dès la 1re phrase écrite, sans attendre la fin de la réponse.
     """
 
-    def __init__(self) -> None:
+    def __init__(self, min_chars: int = 0) -> None:
+        self.min_chars = min_chars  # voix en ligne : on attend un morceau assez long
         self.raw = ""
         self.used = 0  # caractères de ``raw`` déjà envoyés à la voix
         self.blocked = False  # réponse « [TRANSMETTRE] … » : pour l'autre robot, pas lue
@@ -91,11 +92,17 @@ class LiveSentences:
         ends = [m.end() for m in _BOUNDARY.finditer(pending)]
         if not ends:
             return []
+        if self.started and len(pending[: ends[-1]].strip()) < self.min_chars:
+            return []  # la 1re phrase part vite ; ensuite, des morceaux plus longs
         self.used += ends[-1]
         return self._sentences(pending[: ends[-1]])
 
     def _sentences(self, chunk: str) -> list[str]:
-        out = split_sentences(_MARKERS.sub("", chunk), first_max=90 if not self.started else 260)
+        out = split_sentences(
+            _MARKERS.sub("", chunk),
+            min_chars=max(25, self.min_chars) if self.started else 25,
+            first_max=90 if not self.started else 260,
+        )
         if out:
             self.started = True
         return out

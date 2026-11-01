@@ -194,7 +194,10 @@ def _check(response: Any, what: str) -> dict[str, Any]:
             detail=response.text[:300],
         )
     if response.status_code == 429:
-        raise AudioError(f"{what} : quota Gemini atteint, réessaie plus tard.", detail="429")
+        raise AudioError(
+            f"{what} : quota Gemini atteint, réessaie plus tard.",
+            detail="429 " + " ".join(response.text.split())[:300],
+        )
     if response.status_code >= 400 and "safety" in response.text.casefold():
         raise AudioError(
             f"{what} : Google refuse cette description (règles de sécurité), sans doute "
@@ -283,20 +286,54 @@ class VoiceBlocked(AudioError):
     """Google refuse de dire une phrase précise (filtre de contenu) : seulement celle-là."""
 
 
-def with_fallback(primary, fallback, pause_s: float = 300.0):  # type: ignore[no-untyped-def]
-    """Si la voix sur mesure échoue, la voix de secours prend le relais (5 min)."""
-    state = {"until": 0.0}
+# Pause commune à toutes les voix en ligne (une voix reconstruite après un réglage ne
+# relance pas d'appels voués au 429) ; on_notice prévient l'interface (fil quelconque).
+_PAUSED_UNTIL = {"t": 0.0}
+on_notice = None  # type: ignore[var-annotated]
+
+
+def resume_online() -> None:
+    """Nouvelle clé : on retente la voix en ligne tout de suite."""
+    _PAUSED_UNTIL["t"] = 0.0
+
+
+def _explain(exc: AudioError) -> tuple[str, float]:
+    detail = (exc.detail or "") + " " + exc.user_message
+    if "429" in detail or "quota" in detail.casefold() or "RESOURCE_EXHAUSTED" in detail:
+        if "PerDay" in detail or "per day" in detail.casefold() or "RPD" in detail:
+            return (
+                "⚠ Voix en ligne : quota du jour atteint chez Google. Sa voix robot locale "
+                "prend le relais (réessai dans 1 h).",
+                3600.0,
+            )
+        return (
+            "⚠ Voix en ligne : trop de demandes d'un coup (quota Google). Sa voix robot "
+            "locale prend le relais 5 min.",
+            300.0,
+        )
+    return ("⚠ Voix en ligne indisponible : sa voix robot locale prend le relais 5 min.", 300.0)
+
+
+def with_fallback(primary, fallback, pause_s: float | None = None):  # type: ignore[no-untyped-def]
+    """Si la voix en ligne échoue, la voix de secours prend le relais (et on le dit)."""
 
     def synthesize(text: str) -> np.ndarray:
-        if time.monotonic() >= state["until"]:
+        if time.monotonic() >= _PAUSED_UNTIL["t"]:
             try:
                 return primary(text)
             except VoiceBlocked as exc:
                 log.warning("Voix en ligne : %s — voix de secours pour cette phrase", exc.detail)
                 return fallback(text)
             except AudioError as exc:
-                state["until"] = time.monotonic() + pause_s
-                log.warning("Voix en ligne indisponible, voix de secours 5 min : %s", exc.detail)
+                message, pause = _explain(exc)
+                _PAUSED_UNTIL["t"] = time.monotonic() + (pause if pause_s is None else pause_s)
+                log.warning("Voix en ligne indisponible (%s) : %s", exc.user_message, exc.detail)
+                notice = on_notice
+                if notice is not None:
+                    try:
+                        notice(message)
+                    except Exception:  # noqa: BLE001 - l'avis ne coupe jamais la voix
+                        pass
         return fallback(text)
 
     return synthesize

@@ -1332,6 +1332,9 @@ class MainWindow(QMainWindow):
             speaker.settings = voice
             speaker.synthesizer = make_synthesizer(voice)
         self.settings_page.show_voice_keys(own)
+        from alicia.core.audio import voice_design
+
+        voice_design.resume_online()  # nouvelle clé : on retente la voix en ligne
         name = "Gemini" if provider == "gemini" else "ChatGPT"
         log.info("Clé voix %s %s (valeur masquée)", name, "enregistrée" if key else "retirée")
         self._notify(
@@ -3189,6 +3192,9 @@ class MainWindow(QMainWindow):
             self.services.actions.on_reminder = self.voice_bridge.reminder.emit
         if self.services.speaker is not None:
             self.services.speaker.on_audio = self._overlay_audio
+            from alicia.core.audio import voice_design
+
+            voice_design.on_notice = self.voice_bridge.notice.emit  # quota, secours : on le dit
             self.services.speaker.on_state = lambda state, msg: self.voice_bridge.state.emit(
                 state, msg
             )
@@ -3388,7 +3394,12 @@ class MainWindow(QMainWindow):
         spoken = self.voice_box.isChecked() and self.services.speaker is not None
         from alicia.core.audio.text import LiveSentences
 
-        self._live = LiveSentences() if spoken else None  # la voix part dès la 1re phrase
+        # La voix part dès la 1re phrase (voix en ligne : la suite par morceaux plus longs)
+        self._live = (
+            LiveSentences(160 if getattr(self.services.speaker, "min_chars", 0) > 25 else 0)
+            if spoken
+            else None
+        )
         self._live_on = False
         self.sources_label.setText("")
         cancel = threading.Event()

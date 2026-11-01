@@ -616,6 +616,10 @@ class Speaker:
         self.on_state: Callable[[str, str | None], None] = lambda _state, _msg: None
 
     @property
+    def min_chars(self) -> int:
+        return 160 if self.settings.tts_engine in ("gemini", "openai") else 25
+
+    @property
     def level(self) -> float:
         return float(getattr(self.player, "level", 0.0)) if self.speaking else 0.0
 
@@ -630,7 +634,8 @@ class Speaker:
         from alicia.core.persona import pronounce
 
         self.stop()
-        sentences = split_sentences(pronounce(text))  # prénoms dits comme il faut
+        # Voix en ligne : phrases regroupées (≈ 160 caractères) → moins d'appels, moins de quota
+        sentences = split_sentences(pronounce(text), min_chars=self.min_chars)
         if not sentences:
             return False
         source: queue.Queue[str | None] = queue.Queue()

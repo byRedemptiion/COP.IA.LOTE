@@ -15,6 +15,10 @@ def isolated_env(tmp_path, monkeypatch):
     monkeypatch.setenv("APPDATA", str(tmp_path / "config"))
     monkeypatch.setenv("LOCALAPPDATA", str(tmp_path / "state"))
     monkeypatch.chdir(tmp_path)
+    from alicia.core.audio import voice_design
+
+    voice_design.resume_online()  # pause « quota » d'un autre test : oubliée
+    monkeypatch.setattr(voice_design, "on_notice", None)
     yield
 
 

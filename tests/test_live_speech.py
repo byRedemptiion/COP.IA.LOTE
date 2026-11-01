@@ -43,3 +43,30 @@ def test_speaker_stream_starts_before_the_text_is_complete():
     speaker.stream_end()
     speaker._thread.join(3)
     assert said == ["Première phrase.", "Deuxième phrase."] and not speaker.speaking
+
+
+def test_online_voices_get_longer_chunks():
+    live = LiveSentences(min_chars=160)
+    assert live.feed("Salut ! Le boss arrive.") == ["Salut !"]  # la 1re part tout de suite
+    assert live.feed(" Esquive. ") == []  # trop court : on attend la suite
+    rest = live.rest("Salut ! Le boss arrive. Esquive. Puis tire dans le dos quand il charge.")
+    assert rest == ["Le boss arrive. Esquive. Puis tire dans le dos quand il charge."]
+
+
+def test_quota_switches_to_backup_and_says_it(monkeypatch):
+    from alicia.core.audio import voice_design
+    from alicia.core.audio.devices import AudioError
+
+    notices = []
+    monkeypatch.setattr(voice_design, "on_notice", notices.append)
+    voice_design.resume_online()
+
+    def online(text):
+        raise AudioError("quota", detail="429 GenerateRequestsPerDayPerProjectPerModel")
+
+    synth = voice_design.with_fallback(online, lambda text: np.ones(2, np.int16))
+    assert len(synth("x")) == 2
+    assert notices and "quota du jour" in notices[0]
+    again = voice_design.with_fallback(online, lambda text: np.ones(3, np.int16))
+    assert len(again("x")) == 3 and len(notices) == 1  # pause commune : pas de 2e appel
+    voice_design.resume_online()
