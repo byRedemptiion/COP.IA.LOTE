@@ -366,6 +366,20 @@ def _designed(settings: VoiceSettings) -> Synthesizer:
 # Effets de voix, applicables à Edge, Gemini, OpenAI et Kokoro :
 # (hauteur en cents, passe-haut, présence, métal, consigne de jeu pour Gemini / OpenAI)
 VOICE_EFFECTS: dict[str, tuple[int, float, float, float, str]] = {
+    "masculin": (
+        -200,
+        120.0,
+        3000.0,
+        0.0,
+        "avec une voix masculine, posée et naturelle",
+    ),
+    "feminin": (
+        200,
+        220.0,
+        4000.0,
+        0.0,
+        "avec une voix féminine, claire et naturelle",
+    ),
     "enfant": (
         620,
         280.0,
@@ -440,13 +454,16 @@ def time_stretch(samples: np.ndarray, rate: float, n_fft: int = 1024) -> np.ndar
 # Réglages de chaque effet : (hauteur en demi-tons, métal en %, clarté en %). Ce ne sont
 # que des points de départ : les curseurs Hauteur / Métal / Clarté les ajustent.
 # « Enfant » monte peu : au-delà de ~3 demi-tons, le calcul laisse un grain métallique.
+# Décalages volontairement modérés : au-delà de ~3 demi-tons, la voix sonne trafiquée.
 FX_PRESETS: dict[str, tuple[float, int, int]] = {
     "": (0.0, 0, 50),
-    "enfant": (2.5, 0, 65),
-    "robot": (2.0, 100, 40),
-    "robot_enfant": (6.0, 60, 60),
-    "robote": (3.0, 45, 55),
-    "gros_robot": (-3.5, 100, 10),
+    "masculin": (-2.0, 0, 40),
+    "feminin": (2.0, 0, 60),
+    "enfant": (2.5, 0, 65),  # « Jeune »
+    "robot": (0.0, 70, 45),
+    "robote": (2.5, 50, 55),
+    "robot_enfant": (4.5, 50, 60),  # « Petit robot (VIIRUS) »
+    "gros_robot": (-3.0, 90, 15),
 }
 
 

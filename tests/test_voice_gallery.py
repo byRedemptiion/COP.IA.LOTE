@@ -112,7 +112,7 @@ def _pitch(samples):
 
 def test_effects_change_pitch_but_keep_duration():
     base = lambda text: _tone()  # noqa: E731
-    for effect, higher in (("enfant", True), ("robot", True), ("gros_robot", False)):
+    for effect, higher in (("enfant", True), ("robot_enfant", True), ("gros_robot", False)):
         out = speaker_module.with_effect(base, effect)("x")
         assert abs(len(out) - 24000) < 600, effect  # même durée (± 25 ms)
         assert (_pitch(out) > 235) if higher else (_pitch(out) < 190), (effect, _pitch(out))

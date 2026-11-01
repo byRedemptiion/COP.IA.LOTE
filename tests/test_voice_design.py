@@ -216,8 +216,8 @@ def test_old_effect_setting_becomes_slider_values(tmp_path):
     from alicia.core.config import _fx
 
     assert _fx({"voice_effect": "robot_enfant"}) == {
-        "fx_pitch": 6.0,
-        "fx_metal": 60,
+        "fx_pitch": 4.5,
+        "fx_metal": 50,
         "fx_bright": 60,
     }
     assert _fx({"voice_effect": "enfant", "fx_pitch": 9, "fx_metal": "x"})["fx_pitch"] == 6.0

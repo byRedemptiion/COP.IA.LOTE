@@ -82,19 +82,19 @@ GEMINI_VOICES = (
     ("Sadaltager", "homme — savant"),
 )
 OPENAI_VOICES = (
-    ("coral", "Coral — chaleureuse"),
-    ("nova", "Nova — jeune et vive"),
-    ("shimmer", "Shimmer — douce"),
-    ("sage", "Sage — calme"),
+    ("coral", "Coral — femme, chaleureuse"),
+    ("nova", "Nova — femme, jeune et vive"),
+    ("shimmer", "Shimmer — femme, douce"),
+    ("sage", "Sage — femme, calme"),
     ("marin", "Marin — naturelle"),
-    ("ballad", "Ballad — expressive"),
+    ("ballad", "Ballad — homme, expressif"),
     ("alloy", "Alloy — neutre"),
-    ("verse", "Verse — dynamique"),
-    ("cedar", "Cedar — voix grave"),
-    ("ash", "Ash — posée"),
-    ("echo", "Echo — claire"),
-    ("fable", "Fable — conteuse"),
-    ("onyx", "Onyx — très grave"),
+    ("verse", "Verse — homme, dynamique"),
+    ("cedar", "Cedar — homme, grave"),
+    ("ash", "Ash — homme, posé"),
+    ("echo", "Echo — homme, clair"),
+    ("fable", "Fable — homme, conteur"),
+    ("onyx", "Onyx — homme, très grave"),
 )
 SENSITIVITY = {
     1: "Peu sensible (pièce bruyante, casque ouvert)",
@@ -1243,12 +1243,14 @@ class SettingsPage(QWidget):
         )
         self.effect_box = QComboBox()
         for key, label in (
-            ("", "Aucun : la voix telle quelle"),
-            ("enfant", "🧒 Enfant : plus aiguë, plus jeune"),
-            ("robot", "🤖 Petit robot : métallique, un peu aiguë"),
-            ("robot_enfant", "🤖 VIIRUS : petit garçon robot, aigu et espiègle"),
-            ("robote", "🤖 ALICIA : petite robote, aiguë et rieuse (voix féminine)"),
-            ("gros_robot", "🦾 Gros robot : grave et métallique"),
+            ("", "Aucun"),
+            ("masculin", "♂ Masculin"),
+            ("feminin", "♀ Féminin"),
+            ("enfant", "✨ Jeune"),
+            ("robot", "🤖 Robot"),
+            ("robote", "🤖 Petite robote"),
+            ("robot_enfant", "🤖 Petit robot (VIIRUS)"),
+            ("gros_robot", "🦾 Gros robot"),
         ):
             self.effect_box.addItem(label, key)
         self.effect_box.currentIndexChanged.connect(
@@ -1280,13 +1282,14 @@ class SettingsPage(QWidget):
             fx_grid.addWidget(value, row, 2)
             self.fx_sliders[key] = (slider, value)
         fx_grid.setColumnStretch(1, 1)
-        grid.addWidget(fx, 3, 1, 1, 3)
+        self.fx_section = _collapsible("Réglages fins (hauteur, métal, clarté)", fx)
+        grid.addWidget(self.fx_section, 3, 1, 1, 3)
         fx_grid.addWidget(
             _muted(
-                "L'effet s'ajoute à la voix choisie (Edge, Gemini, OpenAI, Kokoro) et s'entend "
-                "aussi dans les écoutes d'essai. Avec Gemini et OpenAI, la voix reçoit en plus la "
-                "consigne de jouer un enfant ou un robot. Les curseurs ajustent l'effet ; "
-                "les voix sur mesure n'ont jamais d'effet sonore."
+                "Choisir un effet place ces curseurs ; ajuste-les puis ▶ Écouter. Au-delà de "
+                "±3 demi-tons, la voix sonne trafiquée : pour une vraie voix d'homme ou de "
+                "femme, choisis plutôt une voix « homme » ou « femme » dans le catalogue. Les "
+                "voix sur mesure n'ont jamais d'effet sonore."
             ),
             3,
             0,
