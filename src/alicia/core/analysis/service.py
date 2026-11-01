@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import logging
+import re
 import threading
 import time
 from dataclasses import dataclass
@@ -68,6 +69,7 @@ class AnalysisService:
         self.deep_model = None  # cerveau « réfléchi » (optionnel)
         self.stt = settings.voice.stt  # local (Whisper sur le PC) | gemini (Gemini transcrit)
         self.cloud_transcriber = None  # créé au premier besoin
+        self.duo_peer = ""  # l'autre robot du duo quand il est actif (ALICIA chez VIIRUS…)
         # Dernier jeu vu au premier plan : sert quand tu poses la question depuis le bureau
         # ou depuis COP'IA'LOTE (la fenêtre du jeu n'est alors plus devant).
         self.last_game: tuple[GameProfile, WindowInfo, float] | None = None
@@ -204,6 +206,7 @@ class AnalysisService:
                     + game_note
                     + _pages_note(found_pages)
                     + (_guide_rules() if web_search else "")
+                    + _duo_rules(self.duo_peer)
                     + vision_note(frame)
                     + past_note
                     + ("\n" + UNDERSTOOD_QUESTION if dictated else ""),
@@ -273,6 +276,10 @@ class AnalysisService:
                     question = transcript or question  # sinon la version comprise sur le PC
                 else:
                     question = transcript or "(question orale inaudible)"
+            relay = re.match(r"\s*\[TRANSMETTRE\]\s*(.+)", result.text, re.DOTALL)
+            if relay and self.duo_peer:
+                result.extra["duo_relay"] = relay.group(1).strip()
+                log.info("[%s] demande de transmission au duo repérée par l'IA", brain_label)
             from alicia.core.guide import take_markers
 
             result.text, wants_page, wants_image = take_markers(result.text)
@@ -533,6 +540,18 @@ def _app_note(window: WindowInfo) -> str:
         f"\nApplication du joueur au premier plan : « {window.title} » ({window.exe_name}). "
         "Ce jeu n'a pas de profil dans COP'IA'LOTE : déduis-le du titre et de l'image, "
         "et dis-le si tu n'es pas sûr."
+    )
+
+
+def _duo_rules(peer: str) -> str:
+    if not peer:
+        return ""
+    return (
+        f"\nDuo : tu peux faire passer un message à {peer} (l'autre robot, chez le pote du "
+        "joueur), qui le dira à voix haute. Si le joueur te demande de transmettre, dire, "
+        f"demander ou faire passer quelque chose à {peer} ou à son joueur (même « ce que je "
+        "viens de te dire »), réponds UNIQUEMENT : [TRANSMETTRE] suivi de sa demande, "
+        "complétée avec ce qu'il t'a dit avant si besoin. Sinon, n'en parle pas.\n"
     )
 
 

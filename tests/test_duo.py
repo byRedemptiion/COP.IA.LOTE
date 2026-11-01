@@ -251,3 +251,49 @@ def test_messages_wait_while_you_talk_to_your_robot(qt_app, tmp_path, monkeypatc
     assert "Nova arrive" in window.answer.toPlainText()
     window.duo_link = None
     window.close()
+
+
+def test_more_ways_to_ask_for_a_relay():
+    from alicia.core.duo import parse_duo_request
+
+    for text in (
+        "Tu peux transmettre le message à Alicia, s'il te plaît, que je viens de te dire ?",
+        "fais passer le message à Alicia",
+        "passe le bonjour à Alicia",
+        "tu peux dire à Alicia que j'arrive",
+    ):
+        assert parse_duo_request(text, ["ALICIA"])[0] == "relay", text
+    assert parse_duo_request("Quel objet pour Ashe ?", ["ALICIA"]) is None
+
+
+def test_the_ai_can_spot_a_relay_request_the_rules_missed():
+    from alicia.app import build_services
+    from alicia.core.ai.base import AnalysisResult
+    from alicia.core.capture.backends import DEMO_WINDOW
+    from alicia.core.config import load_settings
+
+    class RelayModel:
+        provider, model = "gemini", "flash"
+
+        def __init__(self):
+            self.requests = []
+
+        def check(self):
+            return None
+
+        def analyze(self, request, on_delta=None, cancel=None):
+            self.requests.append(request)
+            return AnalysisResult("[TRANSMETTRE] Il arrive dans 5 minutes.", "gemini", "flash", 1)
+
+    model = RelayModel()
+    services = build_services(
+        load_settings(environ={"ALICE_AI_PROVIDER": "fake"}), demo=True, model=model
+    )
+    services.analysis.duo_peer = "ALICIA"
+    outcome = services.analysis.analyze(DEMO_WINDOW, "Préviens la copine de Nova pour moi")
+    assert "faire passer un message à ALICIA" in model.requests[0].system_prompt
+    assert outcome.result.extra["duo_relay"] == "Il arrive dans 5 minutes."
+    services.analysis.duo_peer = ""
+    model.requests.clear()
+    services.analysis.analyze(DEMO_WINDOW, "Quel objet ?")
+    assert "TRANSMETTRE" not in model.requests[0].system_prompt  # duo coupé : pas de règle

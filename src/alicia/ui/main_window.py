@@ -1559,6 +1559,7 @@ class MainWindow(QMainWindow):
             connected=bool(self.duo_link is not None and self.duo_link.connected),
             speaking=self._peer_talking(),
         )
+        self.services.analysis.duo_peer = peer if self.duo_link is not None else ""
         feminine = next((p.feminine for p in PERSONAS.values() if p.title == peer), False)
         mine = STATE_LABELS.get(self.core.state, "").capitalize()
         self.duo_panel.show_state(
@@ -1729,6 +1730,12 @@ class MainWindow(QMainWindow):
             if last and time.monotonic() - last[0] < 600
             else ""
         )
+        recent = self.services.session.history()[-2:]
+        if recent:  # « transmets-lui ce que je viens de te dire »
+            said = " / ".join(f"« {turn.question} »" for turn in recent)
+            context += (
+                f"Ce que {player} t'a dit juste avant (si sa demande y fait référence) : {said}\n"
+            )
         system = self._duo_system(
             f"Tu sers de porte-parole : {player} (ton joueur) te demande de transmettre un "
             f"message au pote{' ' + self.duo_peer_player if self.duo_peer_player else ''} "
@@ -3801,6 +3808,14 @@ class MainWindow(QMainWindow):
             return
         result = outcome.result
         assert result is not None
+        if result.extra.get("duo_relay") and self.duo_link is not None:
+            # L'IA a reconnu une demande pour l'autre robot : on la lui transmet
+            if outcome.transcript is not None:
+                self.question.setText(f"🎙 {outcome.transcript}")
+            self._core_settle()
+            self.duo_relay(result.extra["duo_relay"])
+            self.analysis_done.emit(outcome)
+            return
         self.answer.setMarkdown(result.text)
         first = (
             f"1er mot {result.first_token_ms} ms · " if result.first_token_ms is not None else ""

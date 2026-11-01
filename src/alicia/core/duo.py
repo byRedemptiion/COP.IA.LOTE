@@ -244,7 +244,9 @@ def parse_duo_request(text: str, others: list[str]) -> tuple[str, str] | None:
     if re.search(r"\b(?:reponds|repond|dis|demande)[- ]?(?:lui|leur)\b", plain):
         return "relay", text.strip()
     relay = re.search(
-        r"\b(?:dis|dites|demande|raconte|reponds|explique|previens|transmets|salue|souhaite)\b"
+        r"\b(?:dis|dites|dire|demande|demander|raconte|raconter|reponds|repondre|explique|"
+        r"expliquer|previens|prevenir|transmets|transmet|transmettre|transmettez|salue|saluer|"
+        r"souhaite|souhaiter|envoie|envoyer|passe|passer|fais passer|faire passer)\b"
         r".{0,80}?\b(?:a|au|aupres de)?\s*" + who + r"\b",
         plain,
     )
