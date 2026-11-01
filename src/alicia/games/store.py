@@ -67,16 +67,20 @@ class GameDraft:
     sources: list[str]
     context: str
     folders: list[str] = field(default_factory=list)
+    sources_off: list[str] = field(default_factory=list)  # sites désactivés (gardés)
 
     @classmethod
     def from_profile(cls, profile: GameProfile) -> GameDraft:
+        # les sites désactivés restent dans la liste, à leur place d'origine si possible
+        everything = list(profile.sources_all or profile.sources)
         return cls(
             profile.name,
             list(profile.exe_names),
             list(profile.title_keywords),
-            list(profile.sources),
+            everything,
             profile.context,
             list(profile.folders),
+            list(profile.sources_off),
         )
 
 
@@ -169,6 +173,7 @@ class GameStore:
             "exe": [e.strip().lower() for e in draft.exe_names if e.strip()],
             "title": [t.strip().lower() for t in draft.title_keywords if t.strip()],
             "sources": sources,
+            "sources_off": [normalize_site(x) for x in draft.sources_off if normalize_site(x)],
             "context": draft.context.strip(),
         }
         if hidden:

@@ -28,7 +28,9 @@ class GameProfile:
     exe_names: tuple[str, ...] = ()
     title_keywords: tuple[str, ...] = ()
     context: str = ""
-    sources: tuple[str, ...] = ()
+    sources: tuple[str, ...] = ()  # sites actifs, du plus fiable au moins fiable
+    sources_off: tuple[str, ...] = ()  # sites gardés dans la liste mais désactivés
+    sources_all: tuple[str, ...] = ()  # tous les sites, dans l'ordre (actifs et désactivés)
     folders: tuple[str, ...] = ()  # dossier d'installation (ex. « _retail_ » pour WoW)
     regions: dict[str, tuple[float, float, float, float]] = field(default_factory=dict)
 
@@ -87,7 +89,13 @@ def _parse(data: dict, origin: str) -> dict[str, GameProfile]:
             exe_names=tuple(s.casefold() for s in _strings(entry.get("exe", []))),
             title_keywords=tuple(s.casefold() for s in _strings(entry.get("title", []))),
             context=str(entry.get("context", "")).strip(),
-            sources=_strings(entry.get("sources", [])),
+            sources=tuple(
+                site
+                for site in _strings(entry.get("sources", []))
+                if site not in _strings(entry.get("sources_off", []))
+            ),
+            sources_off=_strings(entry.get("sources_off", [])),
+            sources_all=_strings(entry.get("sources", [])),
             folders=tuple(s.casefold() for s in _strings(entry.get("folder", []))),
         )
     return profiles

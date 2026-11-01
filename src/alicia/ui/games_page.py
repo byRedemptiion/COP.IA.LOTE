@@ -234,6 +234,9 @@ class GamesPage(QStackedWidget):
         self.sites = QListWidget()
         self.sites.setDragDropMode(QListWidget.DragDropMode.InternalMove)
         self.sites.itemDoubleClicked.connect(self._open_site)
+        self.sites.itemChanged.connect(
+            lambda _item: self.saved_label.setText("Pense à enregistrer.")
+        )
         self.site_input = QLineEdit()
         self.site_input.setPlaceholderText(
             "Colle une adresse : icy-veins.com/wow-forever, https://…"
@@ -263,7 +266,10 @@ class GamesPage(QStackedWidget):
         self.site_error.setStyleSheet("color:#ff3b5c;")
         sites_panel = self._panel(
             _title("SITES DE RÉFÉRENCE"),
-            _muted("Avec la recherche web, ALICIA cherche ici en premier."),
+            _muted(
+                "Avec la recherche web, ALICIA cherche ici en premier. Décoche un site pour "
+                "le mettre de côté sans le supprimer."
+            ),
             (self.sites, 1),
             order_row,
             add_row,
@@ -405,7 +411,7 @@ class GamesPage(QStackedWidget):
         self.context_input.setPlainText(draft.context)
         self.sites.clear()
         for site in draft.sources:
-            self._append_site(site)
+            self._append_site(site, site not in draft.sources_off)
         self.site_input.clear()
         self.site_error.setText("")
         self.saved_label.setText("")
@@ -421,11 +427,20 @@ class GamesPage(QStackedWidget):
 
     # --- sites ----------------------------------------------------------------------------------
 
-    def _append_site(self, site: str) -> None:
+    def _append_site(self, site: str, active: bool = True) -> None:
         item = QListWidgetItem(f"🌐  {site}")
         item.setData(Qt.ItemDataRole.UserRole, site)
-        item.setToolTip("Double-clic : ouvrir le site")
+        item.setFlags(item.flags() | Qt.ItemFlag.ItemIsUserCheckable)
+        item.setCheckState(Qt.CheckState.Checked if active else Qt.CheckState.Unchecked)
+        item.setToolTip("Case cochée : utilisé pour les recherches. Double-clic : ouvrir le site")
         self.sites.addItem(item)
+
+    def sites_off(self) -> list[str]:
+        return [
+            self.sites.item(i).data(Qt.ItemDataRole.UserRole)
+            for i in range(self.sites.count())
+            if self.sites.item(i).checkState() != Qt.CheckState.Checked
+        ]
 
     def site_list(self) -> list[str]:
         return [
@@ -479,6 +494,7 @@ class GamesPage(QStackedWidget):
             self.site_list(),
             self.context_input.toPlainText(),
             _split(self.folder_input.text()),
+            self.sites_off(),
         )
         try:
             key = self.store.save(self.editing, draft)

@@ -167,3 +167,24 @@ def test_games_tab_removes_a_game_and_picks_an_exe(qt_app, tmp_path):
     key = page.save()
     window = WindowInfo(1, "Rainbow Six", 2, exe_name="RainbowSix.exe")
     assert resolve_profile(window, "auto", page.store.profiles).key == key
+
+
+def test_a_source_can_be_switched_off_without_deleting_it(qt_app, tmp_path):
+    from PySide6.QtCore import Qt
+
+    from alicia.ui.games_page import GamesPage
+
+    page = GamesPage(GameStore(tmp_path / "games.toml"))
+    page.open_game("overwatch")
+    first = page.sites.item(0).data(Qt.ItemDataRole.UserRole)
+    page.sites.item(0).setCheckState(Qt.CheckState.Unchecked)
+    page.save()
+    profile = page.store.profiles["overwatch"]
+    assert first not in profile.sources and first in profile.sources_off
+    assert first not in profile.prompt_context(True)  # plus proposé à l'IA
+    page.open_game("overwatch")  # toujours dans la liste, décoché, à sa place
+    assert page.sites.item(0).data(Qt.ItemDataRole.UserRole) == first
+    assert page.sites.item(0).checkState() == Qt.CheckState.Unchecked
+    page.sites.item(0).setCheckState(Qt.CheckState.Checked)
+    page.save()
+    assert page.store.profiles["overwatch"].sources[0] == first

@@ -677,8 +677,33 @@ class SettingsPage(QWidget):
             grid.addWidget(QLabel("Fournisseur"), 1, 0)  # liste ajoutée par l'appelant
             grid.addWidget(QLabel("Modèle"), 2, 0)
             grid.addWidget(labels["model"], 2, 1)
+            roles = {
+                "rapide": (
+                    "Conversation",
+                    "Réactions",
+                    "Vision rapide",
+                    "Mode Copilote",
+                    "Réponses simples",
+                ),
+                "reflechi": (
+                    "Analyse complexe",
+                    "Build",
+                    "Comparaison",
+                    "Stratégie",
+                    "Recherche",
+                    "Raisonnement",
+                ),
+            }[kind]
+            chips = QHBoxLayout()
+            chips.setSpacing(6)
+            for role in roles:
+                chip = QLabel(role)
+                chip.setObjectName("chip")
+                chips.addWidget(chip)
+            chips.addStretch(1)
             grid.addWidget(QLabel("Rôle"), 3, 0)
-            grid.addWidget(_muted(BRAIN_ROLES[kind]), 3, 1, 1, 2)
+            grid.addLayout(chips, 3, 1, 1, 2)
+            chips.itemAt(0).widget().setToolTip(BRAIN_ROLES[kind])
             show_prompt = QPushButton("Voir le prompt")
             show_prompt.clicked.connect(lambda _=False: self._emit("brain_prompt", kind))
             grid.addWidget(QLabel("Prompt"), 4, 0)
@@ -707,10 +732,7 @@ class SettingsPage(QWidget):
         self.fast_box.currentIndexChanged.connect(
             lambda _i: self._emit("fast_provider", self.fast_box.currentData())
         )
-        change_ai = QPushButton("Gérer mes clés")
-        change_ai.clicked.connect(self.open_ai.emit)
-        grid.addWidget(self.fast_box, 1, 1)
-        grid.addWidget(change_ai, 1, 2)
+        grid.addWidget(self.fast_box, 1, 1, 1, 2)
 
         grid = brain_card("reflechi", "🧠  CERVEAU RÉFLÉCHI")
         self.deep_box = QComboBox()
@@ -784,7 +806,7 @@ class SettingsPage(QWidget):
             1,
             3,
         )
-        self._tab_layouts["ai"].addWidget(ollama)
+        self._ai_ollama = ollama
 
         routing, grid = _panel()
         grid.addWidget(_title("QUI RÉPOND ?"), 0, 0, 1, 3)
@@ -799,7 +821,7 @@ class SettingsPage(QWidget):
                 "En jeu, préfère Gemini ou ChatGPT pour le réfléchi : un gros modèle Ollama "
                 "(18 Go) ne tient pas en VRAM à côté du jeu et ferait chauffer le processeur. "
                 "Plusieurs clés par fournisseur : bouton « + » dans la fenêtre des clés ; l'IA "
-                "du duo se choisit dans l'onglet Duo."
+                "du duo se choisit dans l'onglet Social."
             ),
             1,
             0,
@@ -809,6 +831,30 @@ class SettingsPage(QWidget):
         for label in routing.findChildren(QLabel):
             label.setTextFormat(Qt.TextFormat.RichText)
         self._tab_layouts["ai"].addWidget(routing)
+
+        # Avancé (replié) : clés API, modèles Ollama
+        advanced_ai = QWidget()
+        advanced_box = QVBoxLayout(advanced_ai)
+        advanced_box.setContentsMargins(0, 0, 0, 0)
+        advanced_box.setSpacing(14)
+        keys_panel, grid = _panel()
+        grid.addWidget(_title("🔑  CLÉS API"), 0, 0, 1, 3)
+        change_ai = QPushButton("Gérer mes clés (Gemini, ChatGPT)…")
+        change_ai.clicked.connect(self.open_ai.emit)
+        grid.addWidget(change_ai, 1, 0)
+        grid.addWidget(
+            _muted(
+                "Plusieurs clés par fournisseur (bouton « + »), test de la clé, choix de la clé "
+                "active. Elles restent dans %APPDATA%\\Alicia\\.env, jamais affichées."
+            ),
+            1,
+            1,
+            1,
+            2,
+        )
+        advanced_box.addWidget(keys_panel)
+        advanced_box.addWidget(self._ai_ollama)
+        self._tab_layouts["ai"].addWidget(_collapsible("Avancé : clés API et Ollama", advanced_ai))
 
         general, grid = _panel()
         grid.addWidget(_title("DÉMARRAGE"), 0, 0, 1, 3)
