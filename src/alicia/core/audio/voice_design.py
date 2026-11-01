@@ -230,10 +230,17 @@ def designed_synthesizer(key: str, voice_id: str, style: str = ""):  # type: ign
             raise AudioError("Voix sur mesure : Gemini injoignable.", detail=repr(exc)) from exc
         audio = find_audio(_check(response, "Voix sur mesure"))
         if not audio:
-            raise AudioError("Voix sur mesure : réponse sans audio.", detail=response.text[:300])
+            body = " ".join(response.text.split())
+            if any(w in body for w in ("blockReason", "PROHIBITED", "SAFETY", "blocked")):
+                raise VoiceBlocked("Voix sur mesure : phrase refusée.", detail=body[:200])
+            raise AudioError("Voix sur mesure : réponse sans audio.", detail=body[:300])
         return decode_audio(base64.b64decode(audio))
 
     return synthesize
+
+
+class VoiceBlocked(AudioError):
+    """Google refuse de dire une phrase précise (filtre de contenu) : seulement celle-là."""
 
 
 def with_fallback(primary, fallback, pause_s: float = 300.0):  # type: ignore[no-untyped-def]
@@ -244,9 +251,12 @@ def with_fallback(primary, fallback, pause_s: float = 300.0):  # type: ignore[no
         if time.monotonic() >= state["until"]:
             try:
                 return primary(text)
+            except VoiceBlocked as exc:
+                log.warning("Voix en ligne : %s — voix de secours pour cette phrase", exc.detail)
+                return fallback(text)
             except AudioError as exc:
                 state["until"] = time.monotonic() + pause_s
-                log.warning("Voix sur mesure indisponible, voix de secours 5 min : %s", exc.detail)
+                log.warning("Voix en ligne indisponible, voix de secours 5 min : %s", exc.detail)
         return fallback(text)
 
     return synthesize

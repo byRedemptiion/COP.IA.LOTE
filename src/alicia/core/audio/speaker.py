@@ -268,6 +268,7 @@ def gemini_synthesizer(settings: VoiceSettings) -> Synthesizer:
 
     if settings.gemini_voice.startswith("voice_"):  # voix sur mesure (Gemini 3.8)
         return _designed(settings)
+    from alicia.core.audio import voice_design
 
     def synthesize(text: str) -> np.ndarray:
         if not settings.gemini_key:
@@ -309,23 +310,37 @@ def gemini_synthesizer(settings: VoiceSettings) -> Synthesizer:
                 next(p["inlineData"]["data"] for p in parts if "inlineData" in p)
             )
         except (KeyError, IndexError, StopIteration, ValueError) as exc:
+            body = response.text
+            if "blockReason" in body or "PROHIBITED" in body or "SAFETY" in body:
+                # Google refuse de dire CETTE phrase : la voix de secours la dit à sa place.
+                raise voice_design.VoiceBlocked(
+                    "Voix Gemini : phrase refusée par Google.",
+                    detail="phrase bloquée (" + " ".join(body.split())[:120] + ")",
+                ) from exc
             raise AudioError(
-                "Voix Gemini : réponse sans audio.", detail=response.text[:300]
+                "Voix Gemini : réponse sans audio.", detail=" ".join(body.split())[:300]
             ) from exc
         return np.frombuffer(data[: len(data) - len(data) % 2], dtype=np.int16)
 
-    return synthesize
+    if not settings.gemini_key:
+        return synthesize  # le message « il faut une clé » reste affiché
+    return voice_design.with_fallback(synthesize, _profile_fallback(settings))
+
+
+def _profile_fallback(settings: VoiceSettings) -> Synthesizer:
+    """La voix locale du profil (VIIRUS ou ALICIA), en secours des voix en ligne."""
+    from alicia.core.persona import current
+
+    if current().key == "veris":
+        return veris_synthesizer(settings.kokoro_speed)
+    return veris_synthesizer(settings.kokoro_speed, 1.30, 220.0, 3800.0, metallic=0.0)
 
 
 def _designed(settings: VoiceSettings) -> Synthesizer:
     """Voix sur mesure, avec la voix du profil en secours si Gemini ne répond pas."""
     from alicia.core.audio import voice_design
-    from alicia.core.persona import current
 
-    if current().key == "veris":
-        fallback = veris_synthesizer(settings.kokoro_speed)
-    else:
-        fallback = veris_synthesizer(settings.kokoro_speed, 1.30, 220.0, 3800.0, metallic=0.0)
+    fallback = _profile_fallback(settings)
     if not settings.gemini_key:
         return fallback
     effect = VOICE_EFFECTS.get(settings.voice_effect)
@@ -344,7 +359,7 @@ VOICE_EFFECTS: dict[str, tuple[int, float, float, float, str]] = {
         280.0,
         4300.0,
         0.0,
-        "avec la petite voix aiguë, l'énergie et la spontanéité d'un enfant de 7 ans",
+        "avec une voix aiguë, pétillante et pleine d'énergie de personnage de dessin animé",
     ),
     "robot": (
         200,
@@ -358,7 +373,8 @@ VOICE_EFFECTS: dict[str, tuple[int, float, float, float, str]] = {
         260.0,
         4200.0,
         0.6,
-        "comme un petit garçon robot espiègle : voix aiguë, vive, rieuse, un peu mécanique",
+        "comme un petit robot de dessin animé espiègle : voix aiguë, vive, rieuse, un peu "
+        "mécanique",
     ),
     "gros_robot": (
         -350,

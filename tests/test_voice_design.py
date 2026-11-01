@@ -113,3 +113,48 @@ def test_window_creates_and_lists_a_designed_voice(qt_app, tmp_path, monkeypatch
         assert window.services.settings.voice.tts_engine == "gemini"
     finally:
         window.close()
+
+
+def test_blocked_sentence_uses_backup_voice_without_pause(monkeypatch):
+    import httpx
+
+    from alicia.core.audio import speaker
+    from alicia.core.config import Secret, VoiceSettings
+
+    monkeypatch.setattr(
+        httpx,
+        "post",
+        lambda *a, **k: Response({"promptFeedback": {"blockReason": "PROHIBITED_CONTENT"}}),
+    )
+    backup = []
+    monkeypatch.setattr(
+        speaker,
+        "_profile_fallback",
+        lambda settings: lambda text: backup.append(text) or np.ones(3, np.int16),
+    )
+    settings = VoiceSettings(tts_engine="gemini", gemini_voice="Puck", gemini_key=Secret("k"))
+    synth = speaker.gemini_synthesizer(settings)
+    assert len(synth("phrase refusée")) == 3
+    calls = []
+    monkeypatch.setattr(
+        httpx,
+        "post",
+        lambda *a, **k: (
+            calls.append(1)
+            or Response(
+                {
+                    "candidates": [
+                        {
+                            "content": {
+                                "parts": [
+                                    {"inlineData": {"data": base64.b64encode(b"\0\0" * 4).decode()}}
+                                ]
+                            }
+                        }
+                    ]
+                }
+            )
+        ),
+    )
+    assert len(synth("phrase suivante")) == 4  # pas de pause : Gemini reprend tout de suite
+    assert calls and backup == ["phrase refusée"]

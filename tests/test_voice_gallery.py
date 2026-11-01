@@ -40,8 +40,14 @@ def test_gemini_voice_needs_a_key_and_reports_quota(monkeypatch):
     with pytest.raises(AudioError):
         speaker_module.gemini_synthesizer(VoiceSettings())("x")
     monkeypatch.setattr(httpx, "post", lambda *a, **k: httpx.Response(429, text="quota"))
-    with pytest.raises(AudioError, match="quota"):
-        speaker_module.gemini_synthesizer(VoiceSettings(gemini_key=Secret("k")))("x")
+    # Quota atteint : la voix du profil prend le relais (plus de réponse muette)
+    import numpy as np
+
+    monkeypatch.setattr(
+        speaker_module, "_profile_fallback", lambda s: lambda text: np.ones(2, np.int16)
+    )
+    synth = speaker_module.gemini_synthesizer(VoiceSettings(gemini_key=Secret("k")))
+    assert len(synth("x")) == 2
 
 
 class RecordingSpeaker:
