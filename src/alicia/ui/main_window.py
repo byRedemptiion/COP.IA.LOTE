@@ -174,6 +174,9 @@ class MainWindow(QMainWindow):
         self.live = None  # LiveCapture : capture récente toujours prête
         self.overlay = None  # OverlayServer : ALICIA sur le stream (OBS)
         self.duo_link = None  # DuoLink : l'autre robot (ALICIA ↔ VIIRUS)
+        from alicia.core.duo_presence import PeerPresence
+
+        self.duo_presence = PeerPresence()  # l'autre robot est-il là ? (panneau DUO)
         self.duo_peer = ""  # nom de l'autre robot, appris à la connexion
         self.duo_conv: dict | None = None  # type: ignore[type-arg]  # discussion en cours
         self._duo_pending: list[dict] = []  # type: ignore[type-arg]
@@ -210,6 +213,15 @@ class MainWindow(QMainWindow):
         self.tray = self._build_tray(icon)
         self._attach_logs()
         self._setup_copilot()
+        from alicia.core.duo_presence import PING_S
+
+        self._duo_ping_timer = QTimer(self)
+        self._duo_ping_timer.timeout.connect(self._duo_ping)
+        self._duo_ping_timer.start(int(PING_S * 1000))
+        self._duo_panel_timer = QTimer(self)
+        self._duo_panel_timer.timeout.connect(self._show_duo_panel)
+        self._duo_panel_timer.start(2000)
+        self._show_duo_panel()
         self._reload_anims()
         self.refresh_windows()
         self._update_state()
@@ -338,6 +350,18 @@ class MainWindow(QMainWindow):
             (self.preview, 1),
             self.preview_info,
         )
+        self.preview.setMaximumHeight(230)  # un aperçu : « voilà ce que le robot voit »
+        from alicia.ui.duo_panel import DuoPanel
+
+        self.duo_panel = DuoPanel()
+        self.duo_panel.manage.connect(lambda: self.show_page(2, "social"))
+        vision_panel = left
+        left = QWidget()
+        left_box = QVBoxLayout(left)
+        left_box.setContentsMargins(0, 0, 0, 0)
+        left_box.setSpacing(12)
+        left_box.addWidget(vision_panel, 3)
+        left_box.addWidget(self.duo_panel, 2)
         left.setMinimumWidth(270)
 
         # --- Centre : ALICIA ---------------------------------------------------------------------
@@ -1472,6 +1496,7 @@ class MainWindow(QMainWindow):
         if save:
             self._save("duo", "enabled", on)
         if self.duo_link is not None:
+            self._duo_bye()
             self.duo_link.stop()
             self.duo_link = None
         if on and duo.code and not self.services.demo:
@@ -1487,6 +1512,53 @@ class MainWindow(QMainWindow):
             threading.Thread(target=lambda: link.send("hello", **data), daemon=True).start()
             log.info("Duo activé (relais %s)", duo.relay)
         self._show_duo_state()
+
+    def _duo_bye(self, wait: float = 0.0) -> None:
+        """Prévient l'autre robot qu'on s'en va (il passe « absent » tout de suite)."""
+        link = self.duo_link
+        if link is None:
+            return
+        thread = threading.Thread(target=lambda: link.send("bye"), daemon=True)
+        thread.start()
+        if wait:
+            thread.join(wait)
+
+    def _duo_ping(self) -> None:
+        """Signal de présence, toutes les minutes tant que le duo est actif."""
+        link = self.duo_link
+        if link is not None:
+            data = self._hello_data()
+            threading.Thread(target=lambda: link.send("ping", **data), daemon=True).start()
+
+    def _show_duo_panel(self) -> None:
+        from alicia.core.persona import PERSONAS
+        from alicia.ui.theme import STATE_LABELS
+
+        duo = self.services.settings.duo
+        me = current_persona()
+        presence = self.duo_presence
+        peer = (
+            presence.name
+            or self.duo_peer
+            or next((p.title for p in PERSONAS.values() if p.key != me.key), "l'autre robot")
+        )
+        state = presence.state(
+            time.monotonic(),
+            enabled=duo.enabled,
+            has_code=bool(duo.code) or self.services.demo,
+            connected=bool(self.duo_link is not None and self.duo_link.connected),
+            speaking=self._peer_talking(),
+        )
+        feminine = next((p.feminine for p in PERSONAS.values() if p.title == peer), False)
+        mine = STATE_LABELS.get(self.core.state, "").capitalize()
+        self.duo_panel.show_state(
+            me.title,
+            f"Actif · {mine}" if mine else "Actif",
+            peer,
+            state,
+            presence.player or self.duo_peer_player,
+            feminine,
+        )
 
     def _hello_data(self) -> dict:  # type: ignore[type-arg]
         from alicia.core.persona import player
@@ -1929,6 +2001,21 @@ class MainWindow(QMainWindow):
 
     def _duo_received(self, msg: dict) -> None:  # type: ignore[type-arg]
         kind, name = msg.get("kind"), str(msg.get("name") or "l'autre robot")
+        presence = self.duo_presence
+        presence.name = name
+        if kind == "bye":
+            presence.left = True
+            log.info("Duo : %s s'est déconnecté", name)
+            self._show_duo_panel()
+            return
+        presence.seen(time.monotonic())
+        if msg.get("player"):
+            presence.player = str(msg.get("player"))[:40]
+        if kind == "ping":
+            self.duo_peer = name
+            self._learn_peer_player(msg)
+            self._show_duo_panel()
+            return
         if kind == "hello":
             first = not self.duo_peer
             self.duo_peer = name
@@ -2825,6 +2912,7 @@ class MainWindow(QMainWindow):
 
     def closeEvent(self, event) -> None:  # type: ignore[no-untyped-def]  # noqa: N802
         if self.duo_link is not None:
+            self._duo_bye(wait=1.5)
             self.duo_link.stop()
         if getattr(self, "tray", None) is not None:
             self.tray.hide()
