@@ -280,7 +280,10 @@ class MainWindow(QMainWindow):
         self.copilot_button.toggled.connect(lambda on: self.set_copilot(on))
         right_buttons.addWidget(self.copilot_button)
         right_buttons.addWidget(self.orb_button)
-        right_buttons.addWidget(self.nav_keys)  # roue des réglages, tout à droite
+        right_buttons.addWidget(self.nav_keys)  # roue des réglages
+        from alicia.ui.frameless import window_buttons
+
+        right_buttons.addWidget(window_buttons(self))  # –  ▢  ✕ (plus de barre Windows)
         header.addLayout(right_buttons, 0, 2)
         self.nav_keys.setObjectName("navIcon")
 
@@ -557,11 +560,17 @@ class MainWindow(QMainWindow):
         self.settings_page.add_tab("games", self.games_page)  # Jeux : un onglet des réglages
         self.pages.addWidget(self.settings_page)
 
-        layout.addLayout(header)
+        title_bar = QWidget()  # l'en-tête sert de barre de titre (glisser, double-clic)
+        title_bar.setObjectName("titleBar")
+        title_bar.setLayout(header)
+        layout.addWidget(title_bar)
         layout.addWidget(self.pages, 1)
         layout.addWidget(self.logs_panel)
         layout.addLayout(footer)
         self.setCentralWidget(root)
+        from alicia.ui.frameless import make_frameless
+
+        make_frameless(self, title_bar)
 
     def show_page(self, index: int, tab: str | None = None) -> None:
         """0 = console du robot ; 1 = réglages, onglet Jeux ; 2 = réglages (``tab`` au choix)."""
@@ -2623,6 +2632,12 @@ class MainWindow(QMainWindow):
         self.orb.show()
         self._core_settle()
         log.info("Mode bulle : seul le rond d'ALICIA est affiché")
+
+    def showEvent(self, event) -> None:  # type: ignore[no-untyped-def]  # noqa: N802
+        super().showEvent(event)
+        from alicia.ui.frameless import round_corners
+
+        round_corners(self)
 
     def show_panel(self) -> None:
         self.orb_mode = False

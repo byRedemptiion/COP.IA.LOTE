@@ -143,6 +143,25 @@ QPushButton#nav:checked {{
     color: {PINK};
     border-bottom-color: {PINK};
 }}
+QPushButton#winButton, QPushButton#winClose {{
+    background: transparent;
+    border: none;
+    color: {MUTED};
+    font-size: 11pt;
+    min-width: 34px;
+    max-width: 34px;
+    min-height: 30px;
+    border-radius: 8px;
+    padding: 0;
+}}
+QPushButton#winButton:hover {{
+    background: rgba(255, 255, 255, 0.08);
+    color: {TEXT};
+}}
+QPushButton#winClose:hover {{
+    background: #e5304f;
+    color: #ffffff;
+}}
 QPushButton#navIcon {{
     font-size: 15pt;
     padding: 1px 10px 3px 10px;
