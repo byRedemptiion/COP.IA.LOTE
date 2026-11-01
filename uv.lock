@@ -86,7 +86,7 @@ wheels = [
 
 [[package]]
 name = "alicia-copilot"
-version = "0.8.2"
+version = "0.9.0b1"
 source = { editable = "." }
 dependencies = [
     { name = "edge-tts" },

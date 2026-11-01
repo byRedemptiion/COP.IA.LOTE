@@ -132,16 +132,22 @@ def _panel() -> tuple[QFrame, QGridLayout]:
 
 TABS = (
     ("general", "⚙️  Général"),
+    ("copilot", "💡  Copilote"),
     ("profile", "👤  Profil"),
-    ("ai", "🧠  IA && clés"),
-    ("voice", "🎙️  Voix && micro"),
-    ("vision", "👀  Vision && mémoire"),
-    ("keys", "⌨️  Raccourcis"),
-    ("stream", "🎥  Stream"),
-    ("duo", "🤝  Duo"),
-    ("people", "👥  Personnes"),
+    ("ai", "🧠  IA"),
+    ("perception", "👀  Perception"),
     ("games", "▦  Jeux"),
+    ("social", "👥  Social"),
+    ("stream", "🎥  Stream"),
 )
+# Anciens noms d'onglets (avant la réorganisation) → nouvel onglet
+TAB_ALIASES = {
+    "voice": "profile",
+    "vision": "perception",
+    "keys": "general",
+    "duo": "social",
+    "people": "social",
+}
 
 
 class SettingsPage(QWidget):
@@ -177,7 +183,7 @@ class SettingsPage(QWidget):
             button.clicked.connect(lambda _=False, k=key: self.show_tab(k))
             bar.addWidget(button)
             self.tab_buttons[key] = button
-            if key in ("games", "people"):
+            if key == "games":
                 continue  # page ajoutée par la fenêtre principale (add_tab)
             area = QScrollArea()
             area.setWidgetResizable(True)
@@ -344,7 +350,7 @@ class SettingsPage(QWidget):
             1,
             3,
         )
-        self._tab_layouts["vision"].addWidget(vision)
+        self._tab_layouts["perception"].addWidget(vision)
 
         # --- Mémoire de partie ---------------------------------------------------------------
         memory, grid = _panel()
@@ -412,7 +418,7 @@ class SettingsPage(QWidget):
             1,
             3,
         )
-        self._tab_layouts["vision"].addWidget(memory)
+        self._tab_layouts["perception"].addWidget(memory)
 
         # --- Micro -------------------------------------------------------------------------------
         mic, grid = _panel()
@@ -450,11 +456,11 @@ class SettingsPage(QWidget):
             1,
             3,
         )
-        self._tab_layouts["voice"].addWidget(mic)
+        self._tab_layouts["perception"].addWidget(mic)
 
         # --- Voix --------------------------------------------------------------------------------
         voice, grid = _panel()
-        grid.addWidget(_title("VOIX D'ALICIA"), 0, 0, 1, 3)
+        grid.addWidget(_title("VOIX D'ALICIA"), 0, 0, 1, 3)  # renommée pour VIIRUS
         self.speak_box = QCheckBox("Lire les réponses à voix haute")
         grid.addWidget(self.speak_box, 1, 0, 1, 3)
         self.engine_box = QComboBox()
@@ -516,8 +522,8 @@ class SettingsPage(QWidget):
         self.voice_test = QPushButton("Tester la voix")
         self.voice_test.clicked.connect(self.test_voice.emit)
         grid.addWidget(self.voice_test, 6, 0)
-        self._tab_layouts["voice"].addWidget(voice)
-        self._tab_layouts["voice"].addWidget(self._voice_gallery())
+        self._tab_layouts["profile"].addWidget(voice)
+        self._tab_layouts["profile"].addWidget(self._voice_gallery())
 
         # --- Stream ---------------------------------------------------------------------------------
         stream, grid = _panel()
@@ -566,7 +572,7 @@ class SettingsPage(QWidget):
 
         # --- Duo -----------------------------------------------------------------------------------
         duo, grid = _panel()
-        grid.addWidget(_title("DUO : DEUX ROBOTS QUI SE PARLENT"), 0, 0, 1, 3)
+        grid.addWidget(_title("SESSION / DUO : DEUX ROBOTS QUI SE PARLENT"), 0, 0, 1, 3)
         me = current_persona()
         other = next((p for p in PERSONAS.values() if p.key != me.key), me)
         self.duo_box = QCheckBox(
@@ -628,7 +634,7 @@ class SettingsPage(QWidget):
         duo_help.setTextFormat(Qt.TextFormat.RichText)
         duo_help.setProperty("keep_names", True)
         grid.addWidget(duo_help, 11, 0, 1, 3)
-        self._tab_layouts["duo"].addWidget(duo)
+        self._tab_layouts["social"].addWidget(duo)
 
         # --- Général -------------------------------------------------------------------------------
         # --- IA & clés : cerveau rapide / cerveau réfléchi ------------------------------------
@@ -782,37 +788,42 @@ class SettingsPage(QWidget):
         self._tab_layouts["ai"].addWidget(routing)
 
         general, grid = _panel()
-        grid.addWidget(_title("GÉNÉRAL"), 0, 0, 1, 3)
+        grid.addWidget(_title("DÉMARRAGE"), 0, 0, 1, 3)
         self.mode_box = QComboBox()
         self.mode_box.addItem("Seulement le rond d'ALICIA (mode bulle)", "orb")
         self.mode_box.addItem("Le panneau complet", "full")
+        self.mode_box.addItem("Comme je l'ai laissé la dernière fois", "last")
         grid.addWidget(QLabel("Au lancement"), 2, 0)
         grid.addWidget(self.mode_box, 2, 1, 1, 2)
+        self._tab_layouts["general"].addWidget(general)
+
+        # Visible en stream : rangé dans l'onglet Stream
+        stream_visibility, grid = _panel()
+        grid.addWidget(_title("VISIBILITÉ"), 0, 0, 1, 3)
         self.stream_box = QCheckBox(
             "Visible en stream : OBS / Discord montrent le rond et la bulle"
         )
         self.stream_box.toggled.connect(lambda on: self._emit("stream_visible", on))
-        grid.addWidget(self.stream_box, 4, 0, 1, 3)
+        grid.addWidget(self.stream_box, 1, 0, 1, 3)
         grid.addWidget(
             _muted(
                 "Coupé : ils sont invisibles pour les captures. Activé en vision « écran entier » "
                 "ou « curseur », l'IA peut aussi les voir sur l'image."
             ),
-            5,
+            2,
             0,
             1,
             3,
         )
+        self._tab_layouts["stream"].insertWidget(0, stream_visibility)
+
+        update_panel, grid = _panel()
+        grid.addWidget(_title("MISE À JOUR"), 0, 0, 1, 3)
         self.github_token = QLineEdit()
         self.github_token.setEchoMode(QLineEdit.EchoMode.Password)
         self.github_token.setPlaceholderText("seulement si le dépôt est privé (github_pat_…)")
         save_token = QPushButton("Enregistrer")
         save_token.clicked.connect(lambda: self._emit("github_token", self.github_token.text()))
-        grid.addWidget(QLabel("Jeton MAJ"), 6, 0)
-        grid.addWidget(self.github_token, 6, 1)
-        grid.addWidget(save_token, 6, 2)
-        self.github_state = _muted("")
-        grid.addWidget(self.github_state, 7, 1, 1, 2)
         self.channel_box = QComboBox()
         self.channel_box.addItem("Stable : la version normale", "alice-v0.3")
         self.channel_box.addItem(
@@ -821,16 +832,24 @@ class SettingsPage(QWidget):
         self.channel_box.currentIndexChanged.connect(
             lambda _i: self._emit("update_channel", self.channel_box.currentData())
         )
-        grid.addWidget(QLabel("Canal MAJ"), 8, 0)
-        grid.addWidget(self.channel_box, 8, 1, 1, 2)
+        self.version_label = _muted("")
+        grid.addWidget(QLabel("Version"), 1, 0)
+        grid.addWidget(self.version_label, 1, 1, 1, 2)
+        grid.addWidget(QLabel("Canal MAJ"), 2, 0)
+        grid.addWidget(self.channel_box, 2, 1, 1, 2)
         grid.addWidget(
             _muted("Change de canal puis clique MAJ. Tu peux revenir sur Stable quand tu veux."),
-            9,
+            3,
             1,
             1,
             2,
         )
-        self._tab_layouts["general"].addWidget(general)
+        grid.addWidget(QLabel("Jeton MAJ"), 4, 0)
+        grid.addWidget(self.github_token, 4, 1)
+        grid.addWidget(save_token, 4, 2)
+        self.github_state = _muted("")
+        grid.addWidget(self.github_state, 5, 1, 1, 2)
+        self._update_panel = update_panel
 
         copilot, grid = _panel()
         grid.addWidget(_title("MODE COPILOTE"), 0, 0, 1, 3)
@@ -881,11 +900,19 @@ class SettingsPage(QWidget):
             1,
             3,
         )
-        self._tab_layouts["general"].addWidget(copilot)
+        self._tab_layouts["copilot"].addWidget(copilot)
 
         # --- Raccourcis ---------------------------------------------------------------------------
         self.shortcuts = shortcuts
-        self._tab_layouts["keys"].addWidget(shortcuts)
+        self._tab_layouts["general"].addWidget(shortcuts)
+        self._tab_layouts["general"].addWidget(self._update_panel)
+        # Profil : identité, voix, catalogue, puis animations
+        self._tab_layouts["profile"].removeWidget(anims_panel)
+        self._tab_layouts["profile"].addWidget(anims_panel)
+        # Perception : vision, micro, compréhension vocale, puis mémoire
+        self._tab_layouts["perception"].removeWidget(memory)
+        self._tab_layouts["perception"].addWidget(self._understanding_panel())
+        self._tab_layouts["perception"].addWidget(memory)
         for tab_layout in self._tab_layouts.values():
             tab_layout.addStretch(1)
         self.show_tab("general")
@@ -1137,6 +1164,7 @@ class SettingsPage(QWidget):
             labels["state"].setText(state)
 
     def show_tab(self, key: str) -> None:
+        key = TAB_ALIASES.get(key, key)
         """Affiche l'onglet ``key`` (general, profile, ai, voice, vision, keys, stream, duo, people, games)."""
         widget = self.tabs.get(key)
         if widget is None:
@@ -1147,13 +1175,34 @@ class SettingsPage(QWidget):
         self.current_tab = key
 
     def add_tab(self, key: str, widget: QWidget) -> None:
-        """Ajoute une page déjà construite (l'onglet Jeux vient de la fenêtre principale)."""
+        """Ajoute une page déjà construite (Jeux : un onglet ; Personnes : en haut de Social)."""
+        if key == "people":
+            widget.setMinimumHeight(460)  # la page a déjà ses panneaux et son titre
+            self._tab_layouts["social"].insertWidget(0, widget)
+            return
         holder = QWidget()
         box = QVBoxLayout(holder)
         box.setContentsMargins(0, 14, 0, 0)
         box.addWidget(widget)
         self.stack.addWidget(holder)
         self.tabs[key] = holder
+
+    def _understanding_panel(self) -> QWidget:
+        """Comment ta voix devient une question pour l'IA (Entendu → Compris)."""
+        panel, grid = _panel()
+        grid.addWidget(_title("COMPRÉHENSION VOCALE"), 0, 0, 1, 3)
+        steps = _muted(
+            "<b>🎙 Audio</b> → <b>Entendu</b> (transcription brute sur ton PC) → "
+            "<b>Compris</b> (noms corrigés : joueurs, robots, personnes) → <b>IA</b>.<br>"
+            "La conversation affiche ce qui a été <b>compris</b> et envoyé au cerveau. "
+            "La transcription brute reste dans le <b>Journal</b> (« Entendu : … ») pour comparer."
+        )
+        steps.setTextFormat(Qt.TextFormat.RichText)
+        grid.addWidget(steps, 1, 0, 1, 2)
+        logs = QPushButton("Ouvrir le journal")
+        logs.clicked.connect(lambda: self._emit("show_logs", True))
+        grid.addWidget(logs, 1, 2)
+        return panel
 
     def show_anims(self, folder: str, found: dict) -> None:  # type: ignore[type-arg]
         self.anims_folder.setText(folder)

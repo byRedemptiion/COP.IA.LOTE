@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "alicia-copilot"
-version = "0.8.2"
+version = "0.9.0b1"
 description = "COP'IA'LOTE : copilote IA pour jeux vidéo sous Windows (profils ALICIA et VERIS)"
 readme = "README.md"
 requires-python = ">=3.12,<3.14"

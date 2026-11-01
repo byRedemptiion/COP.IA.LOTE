@@ -769,6 +769,9 @@ class MainWindow(QMainWindow):
         self.settings_page.load_stream(self.services.settings.stream)
         self.settings_page.load_player(self.services.settings.player)
         self.settings_page.load_brains(self.services.settings.ai)
+        self.settings_page.version_label.setText(
+            f"{PROJECT_NAME} v{__version__} {self._build_text()}".strip()
+        )
         box = self.settings_page.channel_box
         box.blockSignals(True)
         branch = self.services.settings.update.branch
@@ -1065,6 +1068,10 @@ class MainWindow(QMainWindow):
             self._save("duo", "hear_peer", bool(value))
         elif key == "duo_start":
             self.ask_duo_topic()
+        elif key == "show_logs":
+            self.show_page(0)
+            if not self.logs_panel.isVisible():
+                self.toggle_logs()
         elif key == "update_channel":
             from dataclasses import replace
 
@@ -1266,7 +1273,8 @@ class MainWindow(QMainWindow):
         self.settings_page.stream_box.blockSignals(True)
         self.settings_page.stream_box.setChecked(settings.stream_visible)
         self.settings_page.stream_box.blockSignals(False)
-        self.orb_mode = settings.ui_mode == "orb"
+        mode = settings.ui_last if settings.ui_mode == "last" else settings.ui_mode
+        self.orb_mode = mode == "orb"
 
     # --- stream : overlay OBS et chat Twitch -------------------------------------------------
 
@@ -2649,7 +2657,16 @@ class MainWindow(QMainWindow):
             else:
                 self.show_panel()
 
+    def _remember_mode(self, mode: str) -> None:
+        """Retient le dernier mode (pour « Au lancement : comme la dernière fois »)."""
+        if self.services.settings.ui_last != mode and not self.services.demo:
+            from dataclasses import replace
+
+            self.services.settings = replace(self.services.settings, ui_last=mode)
+            self._save("ui", "last_mode", mode)
+
     def show_orb(self) -> None:
+        self._remember_mode("orb")
         self.orb_mode = True
         self.hide()
         self.orb.show()
@@ -2663,6 +2680,7 @@ class MainWindow(QMainWindow):
         round_corners(self)
 
     def show_panel(self) -> None:
+        self._remember_mode("full")
         self.orb_mode = False
         self.orb.hide()
         self.showNormal() if self.isMinimized() else self.show()

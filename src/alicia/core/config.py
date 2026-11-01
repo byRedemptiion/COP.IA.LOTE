@@ -275,6 +275,7 @@ class Settings:
     player: PlayerSettings = field(default_factory=PlayerSettings)
     copilot: CopilotSettings = field(default_factory=CopilotSettings)
     ui_mode: str = "orb"  # "orb" : seule la bulle d'ALICIA à l'écran ; "full" : le panneau
+    ui_last: str = "orb"  # dernier mode utilisé (pour ui_mode = "last")
     orb_size: int = 210
     stream_visible: bool = False  # True : OBS / Discord voient le rond et la bulle
     persona: str = "alicia"  # « alicia » ou « veris » : nom, portrait, couleurs, voix
@@ -480,7 +481,8 @@ def load_settings(
         hotkey_analyze=str(_section(data, "hotkeys").get("analyze", "")).strip(),
         hotkey_talk=str(_section(data, "hotkeys").get("talk", "")).strip(),
         actions=_actions(_section(data, "actions")),
-        ui_mode=_choice(_section(data, "ui"), "mode", "orb", ("orb", "full")),
+        ui_mode=_choice(_section(data, "ui"), "mode", "orb", ("orb", "full", "last")),
+        ui_last=_choice(_section(data, "ui"), "last_mode", "orb", ("orb", "full")),
         persona=_choice(_section(data, "ui"), "persona", "alicia", ("alicia", "veris")),
         stream_visible=bool(_section(data, "ui").get("stream_visible", False)),
         stream=StreamSettings(
