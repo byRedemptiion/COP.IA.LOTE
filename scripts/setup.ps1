@@ -26,7 +26,30 @@ try {
     uv --version
 
     Step "Python 3.12 et composants de COP'IA'LOTE (première fois : quelques minutes)"
-    uv sync --python 3.12 --frozen
+    # Après une mise à jour, l'ancienne COP'IA'LOTE peut mettre quelques secondes à se fermer :
+    # tant qu'elle tourne, Windows verrouille ses fichiers (alicia-gui.exe…). On l'attend.
+    $venv = Join-Path $root ".venv"
+    for ($i = 0; $i -lt 30; $i++) {
+        $running = Get-Process -ErrorAction SilentlyContinue |
+            Where-Object { $_.Path -and $_.Path.StartsWith($venv, [StringComparison]::OrdinalIgnoreCase) }
+        if (-not $running) { break }
+        if ($i -eq 0) { Write-Host "Attente de la fermeture de l'ancienne version..." }
+        Start-Sleep -Seconds 1
+    }
+    if ($running) {
+        Write-Host "L'ancienne version ne se ferme pas : arrêt forcé." -ForegroundColor Yellow
+        $running | Stop-Process -Force -ErrorAction SilentlyContinue
+        Start-Sleep -Seconds 2
+    }
+    # Un antivirus peut aussi bloquer un fichier un court instant : jusqu'à 3 essais.
+    for ($try = 1; $try -le 3; $try++) {
+        uv sync --python 3.12 --frozen
+        if ($LASTEXITCODE -eq 0) { break }
+        if ($try -lt 3) {
+            Write-Host "Fichier encore verrouillé, nouvel essai dans 3 s..." -ForegroundColor Yellow
+            Start-Sleep -Seconds 3
+        }
+    }
     if ($LASTEXITCODE -ne 0) { throw "uv sync a échoué (code $LASTEXITCODE) : voir le message ci-dessus." }
     if (-not (Test-Path ".venv\Scripts\alicia-gui.exe")) {
         # Lanceur sans terminal ajouté par une mise à jour : on réinstalle le paquet d'ALICIA.
