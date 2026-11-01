@@ -843,6 +843,25 @@ class MainWindow(QMainWindow):
         if key == "copilot":
             self.set_copilot(bool(value))
             return
+        if key == "copilot_spontaneity":
+            from alicia.core.copilot import SPONTANEITY
+
+            self._copilot_tune("spontaneity", str(value))
+            if value in SPONTANEITY:
+                self._copilot_tune("threshold", SPONTANEITY[str(value)])
+                self.settings_page.load_copilot(self.services.settings.copilot)
+            return
+        if key in ("copilot_kinds", "copilot_trash"):
+            self._copilot_tune(key.removeprefix("copilot_"), str(value))
+            return
+        if key == "copilot_threshold":
+            self._copilot_tune("threshold", int(value))  # type: ignore[call-overload]
+            from alicia.core.copilot import SPONTANEITY
+
+            preset = next((k for k, v in SPONTANEITY.items() if v == int(value)), "perso")  # type: ignore[call-overload]
+            self._copilot_tune("spontaneity", preset)
+            self.settings_page.load_copilot(self.services.settings.copilot)
+            return
         if key.startswith("copilot_"):
             name = key.removeprefix("copilot_")
             self._copilot_tune(name, int(value) if name == "threshold" else float(value))  # type: ignore[arg-type]
@@ -3180,7 +3199,13 @@ class MainWindow(QMainWindow):
         from alicia.core.copilot import Copilot, CopilotGate
 
         settings = self.services.settings.copilot
-        self.copilot = Copilot(CopilotGate(settings.threshold, settings.cooldown_s))
+        from alicia.core.copilot import kinds_from
+
+        self.copilot = Copilot(
+            CopilotGate(
+                settings.threshold, settings.cooldown_s, kinds_from(settings.kinds), settings.trash
+            )
+        )
         self._copilot_running = False
         self.copilot_timer = QTimer(self)
         self.copilot_timer.timeout.connect(self._copilot_tick)
@@ -3195,8 +3220,12 @@ class MainWindow(QMainWindow):
         self.services.settings = replace(self.services.settings, copilot=settings)
         if save:
             self._save("copilot", "enabled", bool(on))
+        from alicia.core.copilot import kinds_from
+
         self.copilot.gate.threshold = settings.threshold
         self.copilot.gate.cooldown_s = settings.cooldown_s
+        self.copilot.gate.kinds = kinds_from(settings.kinds)
+        self.copilot.gate.trash = settings.trash
         if on:
             self.copilot_timer.start(int(settings.interval_s * 1000))
         else:

@@ -257,6 +257,9 @@ class CopilotSettings:
     interval_s: float = 30.0  # coup d'œil à l'écran (15 s minimum : le PC ne doit pas chauffer)
     threshold: int = 7  # importance minimale (1-10) pour parler sans qu'on lui demande
     cooldown_s: float = 60.0  # silence minimum entre deux interventions spontanées
+    spontaneity: str = "normal"  # discret | normal | bavard | perso (seuil réglé à la main)
+    kinds: str = "conseils,alertes,reactions,humour"  # types d'interventions permis
+    trash: str = "off"  # trash-talk : off | leger | normal | corse
 
 
 @dataclass(frozen=True)
@@ -576,4 +579,9 @@ def _copilot_settings(section: dict) -> CopilotSettings:  # type: ignore[type-ar
         interval_s=number("interval_s", 30.0, 15.0, 300.0),
         threshold=int(number("threshold", 7, 1, 10)),
         cooldown_s=number("cooldown_s", 60.0, 10.0, 900.0),
+        spontaneity=_choice(
+            section, "spontaneity", "normal", ("discret", "normal", "bavard", "perso")
+        ),
+        kinds=str(section.get("kinds", CopilotSettings.kinds)),
+        trash=_choice(section, "trash", "off", ("off", "leger", "normal", "corse")),
     )

@@ -112,6 +112,29 @@ def _title(text: str) -> QLabel:
     return label
 
 
+def _collapsible(title: str, body: QWidget) -> QWidget:
+    """Section repliable : « ▸ Avancé » ouvre / ferme le panneau ``body``."""
+    holder = QWidget()
+    box = QVBoxLayout(holder)
+    box.setContentsMargins(0, 0, 0, 0)
+    box.setSpacing(6)
+    toggle = QPushButton(f"▸  {title}")
+    toggle.setObjectName("ghost")
+    toggle.setCheckable(True)
+    toggle.setStyleSheet("text-align: left;")
+    body.setVisible(False)
+
+    def flip(on: bool) -> None:
+        body.setVisible(on)
+        toggle.setText(f"{'▾' if on else '▸'}  {title}")
+
+    toggle.toggled.connect(flip)
+    box.addWidget(toggle, 0, Qt.AlignmentFlag.AlignLeft)
+    box.addWidget(body)
+    holder.toggle = toggle  # type: ignore[attr-defined]
+    return holder
+
+
 def _muted(text: str) -> QLabel:
     label = QLabel(text)
     label.setObjectName("muted")
@@ -852,22 +875,40 @@ class SettingsPage(QWidget):
         self._update_panel = update_panel
 
         copilot, grid = _panel()
-        grid.addWidget(_title("MODE COPILOTE"), 0, 0, 1, 3)
-        self.copilot_box = QCheckBox("Il parle de lui-même quand c'est important")
+        grid.addWidget(_title("ACTIVATION"), 0, 0, 1, 3)
+        self.copilot_box = QCheckBox(
+            "Activer le Mode Copilote : il parle de lui-même quand ça vaut le coup"
+        )
         self.copilot_box.toggled.connect(lambda on: self._emit("copilot", on))
         grid.addWidget(self.copilot_box, 1, 0, 1, 3)
+        grid.addWidget(
+            _muted(
+                "Aussi avec le bouton 💡 Copilote en haut, le menu de la bulle, ou à la voix : "
+                "« active le copilote » / « désactive le copilote »."
+            ),
+            2,
+            0,
+            1,
+            3,
+        )
+        self._tab_layouts["copilot"].addWidget(copilot)
+
+        rhythm, grid = _panel()
+        grid.addWidget(_title("SPONTANÉITÉ ET RYTHME"), 0, 0, 1, 3)
+        self.copilot_spontaneity = QComboBox()
+        for key, text in (
+            ("discret", "🤫 Discret : seulement ce qui compte vraiment"),
+            ("normal", "🙂 Normal : conseils utiles et quelques réactions (conseillé)"),
+            ("bavard", "😄 Bavard : il commente plus souvent"),
+            ("perso", "Personnalisé (réglé dans Avancé)"),
+        ):
+            self.copilot_spontaneity.addItem(text, key)
+        self.copilot_spontaneity.currentIndexChanged.connect(
+            lambda _i: self._emit("copilot_spontaneity", self.copilot_spontaneity.currentData())
+        )
         self.copilot_interval = QComboBox()
         for seconds in (15, 20, 30, 45, 60, 90, 120):
             self.copilot_interval.addItem(f"toutes les {seconds} s", float(seconds))
-        self.copilot_threshold = QComboBox()
-        for level, text in (
-            (9, "9 — seulement les urgences"),
-            (8, "8 — urgences et vrais bons conseils"),
-            (7, "7 — conseils utiles (conseillé)"),
-            (6, "6 — bavard"),
-            (5, "5 — très bavard"),
-        ):
-            self.copilot_threshold.addItem(text, level)
         self.copilot_cooldown = QComboBox()
         for seconds in (20, 30, 60, 90, 120, 180, 300):
             label = (
@@ -878,29 +919,100 @@ class SettingsPage(QWidget):
             self.copilot_cooldown.addItem(label, float(seconds))
         for row, (label, box, key) in enumerate(
             (
-                ("Coup d'œil", self.copilot_interval, "copilot_interval_s"),
-                ("Importance minimale", self.copilot_threshold, "copilot_threshold"),
+                ("Spontanéité", self.copilot_spontaneity, ""),
+                ("Observation", self.copilot_interval, "copilot_interval_s"),
                 ("Silence entre deux", self.copilot_cooldown, "copilot_cooldown_s"),
             ),
-            start=2,
+            start=1,
         ):
             grid.addWidget(QLabel(label), row, 0)
             grid.addWidget(box, row, 1, 1, 2)
-            box.currentIndexChanged.connect(lambda _i, b=box, k=key: self._emit(k, b.currentData()))
+            if key:
+                box.currentIndexChanged.connect(
+                    lambda _i, b=box, k=key: self._emit(k, b.currentData())
+                )
         grid.addWidget(
             _muted(
-                "Le cerveau rapide jette un coup d'œil à l'écran et note l'importance de 1 à 10. "
-                "Il ne parle que si la note atteint le seuil, après le délai de silence (sauf "
-                "urgence 9-10) et jamais deux fois la même chose. Il se tait quand tu parles. "
-                "À la voix : « active le copilote » / « désactive le copilote ». "
-                "Chaque coup d'œil est une requête à l'IA : espace-les avec Gemini gratuit."
+                "Observation : un coup d'œil à l'écran par le cerveau rapide (une requête à l'IA "
+                "à chaque fois). Silence : temps minimum entre deux interventions ; une vraie "
+                "urgence passe quand même. Il se tait toujours quand tu parles."
             ),
-            5,
+            4,
             0,
             1,
             3,
         )
-        self._tab_layouts["copilot"].addWidget(copilot)
+        self._tab_layouts["copilot"].addWidget(rhythm)
+
+        kinds_panel, grid = _panel()
+        grid.addWidget(_title("TYPES D'INTERVENTIONS"), 0, 0, 1, 3)
+        self.copilot_kinds: dict[str, QCheckBox] = {}
+        for index, (key, text) in enumerate(
+            (
+                ("conseils", "💡 Conseils : astuces utiles maintenant"),
+                ("alertes", "⚠️ Alertes : danger ou erreur à éviter"),
+                ("reactions", "✨ Réactions spontanées : exploit, surprise, moment épique"),
+                ("humour", "😂 Humour : une remarque drôle sur la situation"),
+                ("trashtalk", "🔥 Trash-talk : il te chambre (rarement)"),
+                ("duo", "🤝 Interaction avec le Duo : remarques pour tes coéquipiers"),
+            )
+        ):
+            box = QCheckBox(text)
+            box.toggled.connect(self._kinds_changed)
+            self.copilot_kinds[key] = box
+            grid.addWidget(box, 1 + index // 2, index % 2)
+        self.copilot_trash = QComboBox()
+        for key, text in (
+            ("off", "Désactivé"),
+            ("leger", "Léger : taquineries gentilles"),
+            ("normal", "Normal : il chambre franchement"),
+            ("corse", "Corsé : piquant, mais jamais méchant"),
+        ):
+            self.copilot_trash.addItem(text, key)
+        self.copilot_trash.currentIndexChanged.connect(
+            lambda _i: self._emit("copilot_trash", self.copilot_trash.currentData())
+        )
+        grid.addWidget(QLabel("Trash-talk"), 4, 0)
+        grid.addWidget(self.copilot_trash, 4, 1)
+        grid.addWidget(
+            _muted(
+                "Pas de phrases toutes faites : il réagit à ce qu'il voit vraiment. Le trash-talk "
+                "reste rare (pas à chaque mort), sans insulte ni attaque personnelle. Les "
+                "réactions et l'humour sont plus espacés que les conseils."
+            ),
+            5,
+            0,
+            1,
+            2,
+        )
+        self._tab_layouts["copilot"].addWidget(kinds_panel)
+
+        advanced, grid = _panel()
+        self.copilot_threshold = QComboBox()
+        for level, text in (
+            (9, "9 — seulement les urgences"),
+            (8, "8 — Discret : urgences et vrais bons conseils"),
+            (7, "7 — Normal : conseils utiles"),
+            (6, "6 — un peu bavard"),
+            (5, "5 — Bavard"),
+        ):
+            self.copilot_threshold.addItem(text, level)
+        self.copilot_threshold.currentIndexChanged.connect(
+            lambda _i: self._emit("copilot_threshold", self.copilot_threshold.currentData())
+        )
+        grid.addWidget(QLabel("Importance minimale"), 0, 0)
+        grid.addWidget(self.copilot_threshold, 0, 1, 1, 2)
+        grid.addWidget(
+            _muted(
+                "L'IA note chaque coup d'œil de 1 à 10 ; il parle à partir de cette note. "
+                "Discret, Normal et Bavard règlent ce seuil pour toi."
+            ),
+            1,
+            0,
+            1,
+            3,
+        )
+        self._tab_layouts["copilot"].addWidget(_collapsible("Avancé", advanced))
 
         # --- Raccourcis ---------------------------------------------------------------------------
         self.shortcuts = shortcuts
@@ -1109,10 +1221,27 @@ class SettingsPage(QWidget):
         finally:
             self._loading = False
 
+    def _kinds_changed(self) -> None:
+        kinds = [k for k, box in self.copilot_kinds.items() if box.isChecked()]
+        self.copilot_trash.setEnabled("trashtalk" in kinds)
+        if "trashtalk" in kinds and self.copilot_trash.currentData() == "off" and not self._loading:
+            self.copilot_trash.setCurrentIndex(self.copilot_trash.findData("leger"))
+        self._emit("copilot_kinds", ",".join(kinds))
+
     def load_copilot(self, copilot) -> None:  # type: ignore[no-untyped-def]
         self._loading = True
         try:
             self.copilot_box.setChecked(copilot.enabled)
+            self.copilot_spontaneity.setCurrentIndex(
+                max(0, self.copilot_spontaneity.findData(copilot.spontaneity))
+            )
+            from alicia.core.copilot import kinds_from
+
+            enabled = kinds_from(copilot.kinds)
+            for key, box in self.copilot_kinds.items():
+                box.setChecked(key in enabled)
+            self.copilot_trash.setCurrentIndex(max(0, self.copilot_trash.findData(copilot.trash)))
+            self.copilot_trash.setEnabled("trashtalk" in enabled)
             for box, value in (
                 (self.copilot_interval, float(copilot.interval_s)),
                 (self.copilot_threshold, int(copilot.threshold)),

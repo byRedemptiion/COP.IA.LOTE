@@ -46,7 +46,7 @@ def test_gate_threshold_cooldown_and_repeats():
     ok = Decision(True, 8, "Achète une potion avant de repartir.")
     assert gate.allow(Decision(False, 9, ""), now=0)[0] is False
     assert gate.allow(Decision(True, 6, "bof"), now=0) == (False, "importance 6 < seuil 7")
-    assert gate.allow(ok, now=0) == (True, "utile")
+    assert gate.allow(ok, now=0) == (True, "conseil")
     gate.spoke(ok.message, now=0)
     allowed, why = gate.allow(Decision(True, 8, "Pense à ton ultime."), now=30)
     assert not allowed and "délai de silence" in why
@@ -141,5 +141,68 @@ def test_voice_command_turns_copilot_on_and_off(qt_app, tmp_path, monkeypatch):
         assert window.copilot_timer.isActive() and window.copilot_button.isChecked()
         window._action_done(window.services.analysis.analyze(None, "coupe le copilote"))
         assert not window.copilot_timer.isActive()
+    finally:
+        window.close()
+
+
+def test_categories_trash_talk_and_fun_spacing():
+    gate = CopilotGate(7, 60, ("conseils", "alertes", "humour", "trashtalk"), trash="off")
+    assert "trashtalk" not in gate.categories  # case cochée mais niveau désactivé
+    joke = Decision(True, 8, "Belle chute, champion.", "", "humour")
+    assert gate.allow(joke, now=0)[0]
+    gate.spoke(joke.message, now=0, category="humour")
+    # une autre blague trop tôt : refusée (2 × le silence), un conseil passe après 60 s
+    assert not gate.allow(Decision(True, 8, "Encore une ?", "", "humour"), now=90)[0]
+    assert gate.allow(Decision(True, 8, "Pense à réparer ton armure.", "", "conseil"), now=90)[0]
+    assert gate.allow(Decision(True, 8, "Pas de réaction", "", "reaction"), now=500) == (
+        False,
+        "type « reaction » désactivé",
+    )
+    gate.trash = "corse"
+    rules = gate.rules()
+    assert "trashtalk" in rules and "Jamais d'insulte" in rules and "corse" in rules
+    trash = Decision(True, 8, "Tu viens de tomber tout seul ?", "", "trashtalk")
+    assert gate.allow(trash, now=1000)[0]
+    gate.spoke(trash.message, now=1000, category="trashtalk")
+    allowed, why = gate.allow(Decision(True, 8, "Encore toi par terre", "", "trashtalk"), now=1200)
+    assert not allowed and "récent" in why
+
+
+def test_parse_category():
+    found = parse_decision('{"speak": true, "category": "Alerte", "importance": 9, "message": "x"}')
+    assert found.category == "alerte"
+    assert (
+        parse_decision(
+            '{"speak": true, "category": "??", "importance": 9, "message": "x"}'
+        ).category
+        == "conseil"
+    )
+
+
+def test_copilot_page_presets_and_kinds(qt_app, tmp_path, monkeypatch):
+    from alicia.ui.main_window import MainWindow
+
+    monkeypatch.chdir(tmp_path)
+    window = MainWindow(
+        build_services(load_settings(environ={"ALICE_AI_PROVIDER": "fake"}), demo=True)
+    )
+    page = window.settings_page
+    try:
+        page.copilot_spontaneity.setCurrentIndex(page.copilot_spontaneity.findData("bavard"))
+        settings = window.services.settings.copilot
+        assert settings.spontaneity == "bavard" and settings.threshold == 5
+        assert window.copilot.gate.threshold == 5
+        page.copilot_threshold.setCurrentIndex(page.copilot_threshold.findData(9))
+        assert window.services.settings.copilot.spontaneity == "perso"
+        assert page.copilot_spontaneity.currentData() == "perso"
+
+        assert not page.copilot_trash.isEnabled()
+        page.copilot_kinds["trashtalk"].setChecked(True)
+        assert page.copilot_trash.isEnabled() and page.copilot_trash.currentData() == "leger"
+        page.copilot_kinds["humour"].setChecked(False)
+        gate = window.copilot.gate
+        assert "trashtalk" in gate.kinds and "humour" not in gate.kinds and gate.trash == "leger"
+        reloaded = load_settings().copilot
+        assert "trashtalk" in reloaded.kinds and reloaded.trash == "leger"
     finally:
         window.close()
