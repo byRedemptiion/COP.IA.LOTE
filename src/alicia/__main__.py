@@ -91,7 +91,7 @@ def main(argv: list[str] | None = None) -> int:
 
 def _fatal(message: str) -> None:
     """Erreur au démarrage : dans le terminal s'il y en a un, sinon dans une fenêtre
-    (ALICIA est lancée sans terminal par Lancer_Alicia.bat)."""
+    (ALICIA est lancée sans terminal par Lancer_COPIALOTE.bat)."""
     if sys.stderr is not None:
         print(message, file=sys.stderr)
     if sys.stderr is None or sys.platform == "win32":

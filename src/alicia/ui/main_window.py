@@ -3017,12 +3017,19 @@ class MainWindow(QMainWindow):
         self._background(lambda: updater.apply(info), done, failed)
 
     def restart(self, show_console: bool = False) -> None:
-        """Relance ALICIA par Lancer_Alicia.bat (qui met à jour les dépendances au besoin)."""
+        """Relance ALICIA par Lancer_COPIALOTE.bat (qui met à jour les dépendances au besoin)."""
         import subprocess
         import sys
 
         root = self.updater.root if self.updater is not None else None
-        launcher = root / "Lancer_Alicia.bat" if root is not None else None
+        launcher = None
+        for name in (
+            "Lancer_COPIALOTE.bat",
+            "Lancer_Alicia.bat",
+        ):  # ancien nom : anciennes installs
+            if root is not None and (root / name).is_file():
+                launcher = root / name
+                break
         if sys.platform == "win32" and launcher is not None and launcher.is_file():
             # Petite pause (ping) : les raccourcis F9/F10 doivent être libérés avant la relance.
             # Terminal visible seulement si des composants Python sont à mettre à jour.

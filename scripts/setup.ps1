@@ -1,7 +1,7 @@
 ﻿# Installation de COP'IA'LOTE sous Windows : uv, Python 3.12, dépendances, modèles vocaux.
 # -Installer : lancé par COPIALOTE-Setup.exe (sans question : l'IA est choisie dans l'installateur).
-# -Update    : mise à jour des dépendances seulement (lancé par Lancer_Alicia.bat).
-# Sans option : installation depuis le dossier source (Installer_Alicia.bat).
+# -Update    : mise à jour des dépendances seulement (lancé par Lancer_COPIALOTE.bat).
+# Sans option : installation depuis le dossier source (Installer_COPIALOTE.bat).
 # Ne modifie aucune politique PowerShell globale.
 param([switch]$Update, [switch]$Installer)
 $ErrorActionPreference = "Stop"

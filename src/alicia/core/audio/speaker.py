@@ -80,7 +80,7 @@ def kokoro_synthesizer(voice: str, speed: float, lang: str = "fr-fr") -> Synthes
 
                 if not kokoro_ready():
                     raise AudioError(
-                        "La voix Kokoro n'est pas installée. Relance Installer_Alicia.bat ou "
+                        "La voix Kokoro n'est pas installée. Relance Installer_COPIALOTE.bat ou "
                         "lance : alicia-diag prepare-voice",
                         detail="fichiers Kokoro absents",
                     )

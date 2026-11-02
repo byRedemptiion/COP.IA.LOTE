@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "alicia-copilot"
-version = "0.11.4"
+version = "0.11.5"
 description = "COP'IA'LOTE : copilote IA pour jeux vidéo sous Windows (entités VIIRUS et ALICIA)"
 readme = "README.md"
 requires-python = ">=3.12,<3.14"
@@ -31,7 +31,7 @@ alicia = "alicia.__main__:main"
 alicia-diag = "alicia.diag:main"
 
 [project.gui-scripts]
-# Même programme, sans fenêtre de terminal (lancé par Lancer_Alicia.bat).
+# Même programme, sans fenêtre de terminal (lancé par Lancer_COPIALOTE.bat).
 alicia-gui = "alicia.__main__:main"
 
 [tool.hatch.build.targets.wheel]

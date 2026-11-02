@@ -23,7 +23,7 @@ $appVersion = "$version-$($sha.Substring(0, 7))"
 
 $iscc = Join-Path ${env:ProgramFiles(x86)} "Inno Setup 6\ISCC.exe"
 if (-not (Test-Path $iscc)) { $iscc = "ISCC.exe" }
-$output = & $iscc "/DAppVersion=$appVersion" "alicia.iss" 2>&1
+$output = & $iscc "/DAppVersion=$appVersion" "copialote.iss" 2>&1
 $code = $LASTEXITCODE
 $output | ForEach-Object { Write-Host $_ }
 if ($code -ne 0) {

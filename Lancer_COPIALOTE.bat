@@ -2,7 +2,7 @@
 setlocal
 cd /d "%~dp0"
 rem Lance ALICIA sans terminal. Pour la lancer avec un terminal (diagnostic) :
-rem   Lancer_Alicia.bat --console
+rem   Lancer_COPIALOTE.bat --console
 
 if not exist ".venv\Scripts\alicia.exe" goto install
 

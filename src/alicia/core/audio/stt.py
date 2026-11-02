@@ -84,7 +84,7 @@ class LocalTranscriber:
             except Exception as exc:  # noqa: BLE001 - téléchargement, fichiers corrompus…
                 raise AudioError(
                     f"Impossible de charger le modèle de transcription « {self.model_name} ». "
-                    "Relance Installer_Alicia.bat pour le (re)télécharger.",
+                    "Relance Installer_COPIALOTE.bat pour le (re)télécharger.",
                     detail=repr(exc),
                 ) from exc
             log.info(

@@ -25,7 +25,7 @@ ARCHIVE = make_zip(
         "pyproject.toml": b'[project]\nname = "alicia-copilot"\n',
         "src/alicia/__init__.py": b'__version__ = "0.4.0"\n',
         "uv.lock": b"nouveau lock\n",
-        "Lancer_Alicia.bat": b"@echo off\necho ok\n",
+        "Lancer_COPIALOTE.bat": b"@echo off\necho ok\n",
         ".env": b"GEMINI_API_KEY=VOLEE\n",
         ".venv/pyvenv.cfg": b"home = ailleurs\n",
         "../../evasion.txt": b"non\n",
@@ -78,7 +78,7 @@ def test_update_is_found_installed_then_up_to_date(install):
     assert (install / ".env").read_text("utf-8") == "GEMINI_API_KEY=ma-cle\n"  # clé intacte
     assert not (install / ".venv").exists()
     assert not (install.parent.parent / "evasion.txt").exists()
-    assert (install / "Lancer_Alicia.bat").read_bytes() == b"@echo off\r\necho ok\r\n"
+    assert (install / "Lancer_COPIALOTE.bat").read_bytes() == b"@echo off\r\necho ok\r\n"
     assert "README.md" not in result.changed  # inchangé : pas réécrit
     assert json.loads((install / ".alicia-version").read_text("utf-8"))["sha"] == SHA
     assert updater.check() is None  # à jour
@@ -122,4 +122,4 @@ def test_archive_that_is_not_alicia_is_refused(install):
 
 def test_source_checkout_is_updatable():
     root = install_root()
-    assert root is not None and (root / "Lancer_Alicia.bat").exists()
+    assert root is not None and (root / "Lancer_COPIALOTE.bat").exists()

@@ -4,7 +4,7 @@
 2. `apply()` télécharge l'archive de ce commit et remplace les fichiers d'ALICIA dans le
    dossier d'installation. Ne sont jamais touchés : `.env` (clés), `.venv` (Python),
    `.git`. Seuls les fichiers modifiés sont réécrits.
-3. ALICIA redémarre par Lancer_Alicia.bat, qui met à jour les dépendances si `uv.lock`
+3. ALICIA redémarre par Lancer_COPIALOTE.bat, qui met à jour les dépendances si `uv.lock`
    a changé.
 
 Dépôt privé : un jeton GitHub en lecture seule dans `.env` (ALICIA_GITHUB_TOKEN).
@@ -56,7 +56,7 @@ class ApplyResult:
 
 
 def install_root() -> Path | None:
-    """Dossier d'installation (celui de Lancer_Alicia.bat), ou None si ALICIA n'y est
+    """Dossier d'installation (celui de Lancer_COPIALOTE.bat), ou None si ALICIA n'y est
     pas installée depuis ses sources (paquet installé ailleurs : pas de mise à jour)."""
     root = Path(__file__).resolve().parents[3]
     try:

@@ -153,7 +153,7 @@ Deux cerveaux : un rapide pour les réponses courantes, un réfléchi pour les q
 | « Quota atteint » | Attendre (une minute, ou le lendemain pour un quota par jour) |
 | Il ne m'entend pas | Réglages → Perception → micro et « Tester le micro » |
 | Capture noire | Mettre le jeu en plein écran fenêtré |
-| La mise à jour échoue | Fermer COP'IA'LOTE, puis lancer `Lancer_Alicia.bat` dans `%LOCALAPPDATA%\Programs\ALICIA` |
+| La mise à jour échoue | Fermer COP'IA'LOTE, puis lancer `Lancer_COPIALOTE.bat` dans `%LOCALAPPDATA%\Programs\ALICIA` |
 
 Le journal se trouve dans `%LOCALAPPDATA%\Alicia\logs\alicia.log` (bouton **Journal** en bas du panneau).
 

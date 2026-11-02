@@ -6,7 +6,7 @@
 ; Les clés et réglages restent dans %APPDATA%\Alicia : une désinstallation ne les efface pas.
 
 #ifndef AppVersion
-  #define AppVersion "0.11.4"
+  #define AppVersion "0.11.5"
 #endif
 
 [Setup]
@@ -47,8 +47,8 @@ Source: "..\pyproject.toml"; DestDir: "{app}"; Flags: ignoreversion
 Source: "..\uv.lock"; DestDir: "{app}"; Flags: ignoreversion
 Source: "..\README.md"; DestDir: "{app}"; Flags: ignoreversion
 Source: "..\.env.example"; DestDir: "{app}"; Flags: ignoreversion
-Source: "..\Lancer_Alicia.bat"; DestDir: "{app}"; Flags: ignoreversion
-Source: "..\Mes_Jeux_Alicia.bat"; DestDir: "{app}"; Flags: ignoreversion
+Source: "..\Lancer_COPIALOTE.bat"; DestDir: "{app}"; Flags: ignoreversion
+Source: "..\Mes_Jeux_COPIALOTE.bat"; DestDir: "{app}"; Flags: ignoreversion
 Source: "..\Tester_IA.bat"; DestDir: "{app}"; Flags: ignoreversion
 Source: "..\scripts\setup.ps1"; DestDir: "{app}\scripts"; Flags: ignoreversion
 Source: "..\src\*"; DestDir: "{app}\src"; Excludes: "__pycache__,*.pyc"; Flags: ignoreversion recursesubdirs createallsubdirs
@@ -58,7 +58,7 @@ Source: "build\.alicia-version"; DestDir: "{app}"; Flags: ignoreversion
 [Icons]
 Name: "{autodesktop}\COP'IA'LOTE"; Filename: "{app}\.venv\Scripts\alicia-gui.exe"; WorkingDir: "{app}"; IconFilename: "{app}\src\alicia\assets\copialote.ico"; Comment: "COP'IA'LOTE, copilote de jeu"
 Name: "{autoprograms}\COP'IA'LOTE"; Filename: "{app}\.venv\Scripts\alicia-gui.exe"; WorkingDir: "{app}"; IconFilename: "{app}\src\alicia\assets\copialote.ico"; Comment: "COP'IA'LOTE, copilote de jeu"
-Name: "{autoprograms}\COP'IA'LOTE (diagnostic, avec terminal)"; Filename: "{app}\Lancer_Alicia.bat"; Parameters: "--console"; WorkingDir: "{app}"; IconFilename: "{app}\src\alicia\assets\copialote.ico"
+Name: "{autoprograms}\COP'IA'LOTE (diagnostic, avec terminal)"; Filename: "{app}\Lancer_COPIALOTE.bat"; Parameters: "--console"; WorkingDir: "{app}"; IconFilename: "{app}\src\alicia\assets\copialote.ico"
 
 [Run]
 Filename: "{app}\.venv\Scripts\alicia-gui.exe"; WorkingDir: "{app}"; Description: "Lancer COP'IA'LOTE maintenant"; Flags: postinstall nowait skipifsilent
