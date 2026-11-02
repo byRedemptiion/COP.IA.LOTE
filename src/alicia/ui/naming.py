@@ -83,6 +83,25 @@ def rename_widgets(root: QWidget) -> None:
             widget.setPlaceholderText(named(widget.placeholderText()))
 
 
+def project_logo(size: int) -> QPixmap:
+    """Le logo de COP'IA'LOTE (l'application, pas l'entité), à la taille voulue."""
+    from PySide6.QtCore import Qt
+
+    pixmap = QPixmap()
+    try:
+        pixmap.loadFromData(resources.files("alicia.assets").joinpath("copialote.png").read_bytes())
+    except (OSError, ModuleNotFoundError):
+        return pixmap
+    if pixmap.isNull():
+        return pixmap
+    return pixmap.scaled(
+        size,
+        size,
+        Qt.AspectRatioMode.KeepAspectRatio,
+        Qt.TransformationMode.SmoothTransformation,
+    )
+
+
 def app_icon() -> QIcon:
     """Icône du personnage (fenêtres et barre des tâches), tirée de son .ico multi-tailles."""
     persona = current()

@@ -1,3 +1,5 @@
+<p align="center"><img src="docs/assets/logo.png" alt="Logo COP'IA'LOTE" width="200"></p>
+
 # COP'IA'LOTE — copilote IA pour jeux vidéo (Windows)
 
 **COP'IA'LOTE** est un copilote de jeu qui vit à côté de toi pendant tes parties. Il regarde ton écran, t'écoute quand tu lui parles, te répond à voix haute, et peut même intervenir de lui-même quand quelque chose d'important se passe. Deux personnalités au choix (Réglages → Profil) :

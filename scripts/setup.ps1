@@ -70,7 +70,7 @@ try {
             $link = $shell.CreateShortcut((Join-Path $desktop "COP'IA'LOTE.lnk"))
             $link.TargetPath = Join-Path $root ".venv\Scripts\alicia-gui.exe"
             $link.WorkingDirectory = $root
-            $link.IconLocation = (Join-Path $root "src\alicia\assets\alicia.ico") + ",0"
+            $link.IconLocation = (Join-Path $root "src\alicia\assets\copialote.ico") + ",0"
             $link.Description = "COP'IA'LOTE, copilote de jeu"
             $link.Save()
             Write-Host "Raccourci COP'IA'LOTE créé sur le Bureau."

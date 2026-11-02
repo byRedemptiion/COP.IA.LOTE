@@ -10,7 +10,7 @@ from __future__ import annotations
 import threading
 from dataclasses import dataclass
 
-from PySide6.QtCore import QObject, QUrl, Signal
+from PySide6.QtCore import QObject, Qt, QUrl, Signal
 from PySide6.QtGui import QDesktopServices
 from PySide6.QtWidgets import (
     QButtonGroup,
@@ -111,6 +111,12 @@ class SetupDialog(QDialog):
         layout = QVBoxLayout(self)
         layout.setContentsMargins(24, 20, 24, 20)
         layout.setSpacing(12)
+        from alicia.ui.naming import project_logo
+
+        logo = QLabel()
+        logo.setPixmap(project_logo(96))
+        logo.setAlignment(Qt.AlignmentFlag.AlignHCenter)
+        layout.addWidget(logo)
         title = QLabel("CHOISIS LE CERVEAU D'ALICIA")
         title.setFont(title_font(15))
         title.setStyleSheet(f"color:{PINK};")

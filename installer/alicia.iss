@@ -6,7 +6,7 @@
 ; Les clés et réglages restent dans %APPDATA%\Alicia : une désinstallation ne les efface pas.
 
 #ifndef AppVersion
-  #define AppVersion "0.11.3"
+  #define AppVersion "0.11.4"
 #endif
 
 [Setup]
@@ -22,8 +22,8 @@ DisableProgramGroupPage=yes
 PrivilegesRequired=lowest
 OutputDir=..\dist
 OutputBaseFilename=COPIALOTE-Setup
-SetupIconFile=..\src\alicia\assets\alicia.ico
-UninstallDisplayIcon={app}\src\alicia\assets\alicia.ico
+SetupIconFile=..\src\alicia\assets\copialote.ico
+UninstallDisplayIcon={app}\src\alicia\assets\copialote.ico
 UninstallDisplayName=COP'IA'LOTE
 WizardStyle=modern
 WizardImageFile=wizard.bmp
@@ -56,9 +56,9 @@ Source: "build\uv.exe"; DestDir: "{app}\bin"; Flags: ignoreversion
 Source: "build\.alicia-version"; DestDir: "{app}"; Flags: ignoreversion
 
 [Icons]
-Name: "{autodesktop}\COP'IA'LOTE"; Filename: "{app}\.venv\Scripts\alicia-gui.exe"; WorkingDir: "{app}"; IconFilename: "{app}\src\alicia\assets\alicia.ico"; Comment: "COP'IA'LOTE, copilote de jeu"
-Name: "{autoprograms}\COP'IA'LOTE"; Filename: "{app}\.venv\Scripts\alicia-gui.exe"; WorkingDir: "{app}"; IconFilename: "{app}\src\alicia\assets\alicia.ico"; Comment: "COP'IA'LOTE, copilote de jeu"
-Name: "{autoprograms}\COP'IA'LOTE (diagnostic, avec terminal)"; Filename: "{app}\Lancer_Alicia.bat"; Parameters: "--console"; WorkingDir: "{app}"; IconFilename: "{app}\src\alicia\assets\alicia.ico"
+Name: "{autodesktop}\COP'IA'LOTE"; Filename: "{app}\.venv\Scripts\alicia-gui.exe"; WorkingDir: "{app}"; IconFilename: "{app}\src\alicia\assets\copialote.ico"; Comment: "COP'IA'LOTE, copilote de jeu"
+Name: "{autoprograms}\COP'IA'LOTE"; Filename: "{app}\.venv\Scripts\alicia-gui.exe"; WorkingDir: "{app}"; IconFilename: "{app}\src\alicia\assets\copialote.ico"; Comment: "COP'IA'LOTE, copilote de jeu"
+Name: "{autoprograms}\COP'IA'LOTE (diagnostic, avec terminal)"; Filename: "{app}\Lancer_Alicia.bat"; Parameters: "--console"; WorkingDir: "{app}"; IconFilename: "{app}\src\alicia\assets\copialote.ico"
 
 [Run]
 Filename: "{app}\.venv\Scripts\alicia-gui.exe"; WorkingDir: "{app}"; Description: "Lancer COP'IA'LOTE maintenant"; Flags: postinstall nowait skipifsilent

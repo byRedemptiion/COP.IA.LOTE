@@ -267,7 +267,19 @@ class MainWindow(QMainWindow):
         # Trois colonnes de même largeur : COP'IA'LOTE | VIIRUS · JEUX (au centre) | bulle, ⚙
         header = QGridLayout()
         header.setContentsMargins(0, 0, 0, 0)
-        header.addWidget(brand, 0, 0, Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter)
+        from alicia.ui.naming import project_logo
+
+        brand_box = QWidget()
+        brand_row = QHBoxLayout(brand_box)
+        brand_row.setContentsMargins(0, 0, 0, 0)
+        brand_row.setSpacing(8)
+        logo = QLabel()
+        logo.setPixmap(project_logo(34))  # le logo de l'application, à côté de son nom
+        brand_row.addWidget(logo)
+        brand_row.addWidget(brand)
+        header.addWidget(
+            brand_box, 0, 0, Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter
+        )
         nav = QHBoxLayout()
         nav.setSpacing(6)
         nav.addWidget(self.nav_console)
