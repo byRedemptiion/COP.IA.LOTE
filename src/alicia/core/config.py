@@ -189,6 +189,8 @@ class VoiceSettings:
     voice_effect: str = ""  # "" | enfant | robot | gros_robot (sur Edge, Gemini, OpenAI, Kokoro)
     voice_style: str = ""  # consigne de jeu libre pour ChatGPT et Gemini (« petite robote… »)
     own_keys: tuple[str, ...] = ()  # fournisseurs avec une clé dédiée à la voix (gemini, openai)
+    # Voix de secours quand la voix en ligne échoue (quota…) : une voix Edge, "" = voix robot
+    backup_voice: str = "fr-FR-RemyMultilingualNeural"
     fx_pitch: float = 0.0  # effet : hauteur en demi-tons (-6 à +6)
     fx_metal: int = 0  # effet : timbre métallique de robot (0-100 %)
     fx_bright: int = 50  # effet : clarté (0-100 %, 50 = neutre)
@@ -248,6 +250,11 @@ class StreamSettings:
     ov_alpha: int = 90  # opacité du fond des sous-titres (%)
     ov_subtitles: bool = True
     ov_roam: bool = False  # il se promène dans toute la source
+    chat_regulars: bool = True  # se souvenir des habitués du chat
+    chat_reactions: bool = True  # petites réactions sur l'overlay aux messages du chat
+    clip_app: str = ""  # « clip ça » : "" (coupé) | obs | streamlabs
+    clip_auto: bool = False  # le Copilote clippe tout seul les moments marquants
+    clip_token: Secret = field(default_factory=lambda: Secret(None))  # .env : CLIP_TOKEN
 
 
 @dataclass(frozen=True)
@@ -568,6 +575,13 @@ def load_settings(
             chat_output=str(_section(data, "stream").get("chat_output", "") or ""),
             overlay_voice=bool(_section(data, "stream").get("overlay_voice", False)),
             **_overlay_style(_section(data, "stream")),
+            clip_app=str(_section(data, "stream").get("clip_app", ""))
+            if str(_section(data, "stream").get("clip_app", "")) in ("", "obs", "streamlabs")
+            else "",
+            clip_auto=bool(_section(data, "stream").get("clip_auto", False)),
+            chat_regulars=bool(_section(data, "stream").get("chat_regulars", True)),
+            chat_reactions=bool(_section(data, "stream").get("chat_reactions", True)),
+            clip_token=Secret(env.get("CLIP_TOKEN")),
         ),
         duo=DuoSettings(
             enabled=bool(_section(data, "duo").get("enabled", False)),
@@ -643,6 +657,7 @@ def load_settings(
                 ),
             ),
             voice_style=" ".join(str(voice.get("voice_style", "")).split())[:300],
+            backup_voice=str(voice.get("backup_voice", "fr-FR-RemyMultilingualNeural")).strip(),
             **_fx(voice),
             gemini_tts_model=str(
                 voice.get("gemini_tts_model", "gemini-3.1-flash-tts-preview")

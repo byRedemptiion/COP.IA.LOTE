@@ -265,6 +265,9 @@ def designed_synthesizer(key: str, voice_id: str, style: str = ""):  # type: ign
             "response_format": {"type": "audio"},
             "generation_config": {"speech_config": [{"voice": voice_id}]},
         }
+        from alicia.core import usage
+
+        usage.add("tts_gemini_38")
         try:
             response = httpx.post(
                 INTERACTIONS_URL, headers={"x-goog-api-key": key}, json=body, timeout=40
@@ -302,16 +305,16 @@ def _explain(exc: AudioError) -> tuple[str, float]:
     if "429" in detail or "quota" in detail.casefold() or "RESOURCE_EXHAUSTED" in detail:
         if "PerDay" in detail or "per day" in detail.casefold() or "RPD" in detail:
             return (
-                "⚠ Voix en ligne : quota du jour atteint chez Google. Sa voix robot locale "
+                "⚠ Voix en ligne : quota du jour atteint chez Google. La voix de secours "
                 "prend le relais (réessai dans 1 h).",
                 3600.0,
             )
         return (
-            "⚠ Voix en ligne : trop de demandes d'un coup (quota Google). Sa voix robot "
-            "locale prend le relais 5 min.",
+            "⚠ Voix en ligne : trop de demandes d'un coup (quota Google). La voix de "
+            "secours prend le relais 5 min.",
             300.0,
         )
-    return ("⚠ Voix en ligne indisponible : sa voix robot locale prend le relais 5 min.", 300.0)
+    return ("⚠ Voix en ligne indisponible : la voix de secours prend le relais 5 min.", 300.0)
 
 
 def with_fallback(primary, fallback, pause_s: float | None = None):  # type: ignore[no-untyped-def]
@@ -334,6 +337,9 @@ def with_fallback(primary, fallback, pause_s: float | None = None):  # type: ign
                         notice(message)
                     except Exception:  # noqa: BLE001 - l'avis ne coupe jamais la voix
                         pass
+        from alicia.core import usage
+
+        usage.add("tts_backup")
         return fallback(text)
 
     return synthesize

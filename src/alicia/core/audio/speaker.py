@@ -47,6 +47,9 @@ def edge_synthesizer(voice: str, rate: str) -> Synthesizer:
                     data.extend(chunk["data"])
             return bytes(data)
 
+        from alicia.core import usage
+
+        usage.add("tts_edge")
         try:
             mp3 = asyncio.run(fetch())
         except Exception as exc:  # noqa: BLE001 - réseau, voix inconnue, service changé
@@ -135,6 +138,9 @@ def openai_synthesizer(settings: VoiceSettings) -> Synthesizer:
                 "Edge dans les réglages.",
                 detail="OPENAI_API_KEY absente",
             )
+        from alicia.core import usage
+
+        usage.add("tts_openai")
         try:
             response = httpx.post(
                 f"{settings.openai_base_url}/audio/speech",
@@ -278,6 +284,9 @@ def gemini_synthesizer(settings: VoiceSettings) -> Synthesizer:
                 "Voix Gemini : il faut une clé Gemini (bouton IA → Gemini).",
                 detail="GEMINI_API_KEY absente",
             )
+        from alicia.core import usage
+
+        usage.add("tts_gemini_38" if "3.8" in settings.gemini_tts_model else "tts_gemini_31")
         try:
             response = httpx.post(
                 GEMINI_TTS_URL.format(model=settings.gemini_tts_model),
@@ -337,13 +346,30 @@ def gemini_synthesizer(settings: VoiceSettings) -> Synthesizer:
     return voice_design.with_fallback(with_retry, _profile_fallback(settings))
 
 
-def _profile_fallback(settings: VoiceSettings) -> Synthesizer:
-    """La voix locale du profil (VIIRUS ou ALICIA), en secours des voix en ligne."""
+def _local_fallback(settings: VoiceSettings) -> Synthesizer:
     from alicia.core.persona import current
 
     if current().key == "veris":
         return veris_synthesizer(settings.kokoro_speed)
     return veris_synthesizer(settings.kokoro_speed, 1.30, 220.0, 3800.0, metallic=0.0)
+
+
+def _profile_fallback(settings: VoiceSettings) -> Synthesizer:
+    """Voix de secours des voix en ligne : la voix Edge choisie (gratuite, sans quota), et
+    la voix locale du profil si Edge ne répond pas non plus (pas d'Internet…)."""
+    local = _local_fallback(settings)
+    if not settings.backup_voice:
+        return local
+    edge = edge_synthesizer(settings.backup_voice, settings.tts_rate)
+
+    def synthesize(text: str) -> np.ndarray:
+        try:
+            return edge(text)
+        except AudioError as exc:
+            log.warning("Voix de secours Edge indisponible : %s", exc.detail)
+            return local(text)
+
+    return synthesize
 
 
 def _designed(settings: VoiceSettings) -> Synthesizer:

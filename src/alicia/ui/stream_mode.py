@@ -33,6 +33,9 @@ class StreamMode(QObject):
         self.window = window
         self.chat: TwitchChat | None = None
         self.gate = ChatGate()
+        from alicia.stream.viewers import ViewerBook
+
+        self.viewers = ViewerBook()  # habitués du chat (sur ce PC)
         self.running = False  # une réponse est en préparation
         self.status = "coupé"
         self.bridge = _Bridge()
@@ -88,6 +91,9 @@ class StreamMode(QObject):
     def _received(self, message: ChatMessage) -> None:
         if self.chat is None:
             return
+        if self.window.services.settings.stream.chat_regulars:
+            self.viewers.seen(message.user)
+        self.window.chat_reaction(message.text)  # petites réactions sur l'overlay
         if self.gate.offer(message):
             log.info("Chat : message de %s retenu", message.user)
 
@@ -129,7 +135,12 @@ class StreamMode(QObject):
                     profile, note = window.services.analysis.game_for(frame.window)
                     context = profile.prompt_context(False) + note
             request = AnalysisRequest(
-                question=chat_question(message, say_names),
+                question=chat_question(message, say_names)
+                + (
+                    "\n" + self.viewers.note_for(message.user)
+                    if window.services.settings.stream.chat_regulars
+                    else ""
+                ),
                 images=images,
                 system_prompt=build_system_prompt(context + rules, spoken=True, brain="rapide"),
                 max_output_tokens=300,
@@ -137,6 +148,9 @@ class StreamMode(QObject):
                 quick=True,
             )
             started = time.perf_counter()
+            from alicia.core import usage
+
+            usage.add("chat")
             result = model.analyze(request)
             log.info(
                 "[%s] [Mode Stream] réponse au chat en %d ms",
@@ -154,6 +168,8 @@ class StreamMode(QObject):
             if self._busy():
                 log.info("Chat : réponse annulée, quelqu'un a pris la parole")
                 return
+            if window.services.settings.stream.chat_regulars:
+                self.viewers.topic(message.user, message.text)
             self._speak(message, text)
 
         def failed(exc: Exception) -> None:

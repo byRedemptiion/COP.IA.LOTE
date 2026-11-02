@@ -113,6 +113,17 @@
   #bubble.right { left: calc(100% + var(--gap)); }
   #bubble.left.show, #bubble.right.show { transform: translateY(-50%); }
   #asked { color: var(--gold); font-size: .82em; margin-bottom: 3px; }
+  /* Réactions au chat : un émoji qui s'envole au-dessus du robot */
+  .react {
+    position: absolute; left: 50%; top: 8%; font-size: calc(var(--size) * .2);
+    pointer-events: none; animation: rise 2.2s ease-out forwards;
+    filter: drop-shadow(0 0 8px var(--state));
+  }
+  @keyframes rise {
+    0% { transform: translate(-50%, 0) scale(.4); opacity: 0 }
+    15% { transform: translate(-50%, -20%) scale(1.15); opacity: 1 }
+    100% { transform: translate(calc(-50% + var(--drift, 0px)), -160%) scale(.9); opacity: 0 }
+  }
   #asked:empty { display: none; }
   #said { white-space: pre-wrap; }
 </style>
@@ -311,6 +322,17 @@ function wander() {
 }
 setTimeout(wander, 3000);  // tourne toujours : ne bouge que si « se promène » est actif
 
+// --- réactions au chat ---------------------------------------------------------------------
+function react(emoji) {
+  if (!emoji) return;
+  const el = document.createElement("div");
+  el.className = "react";
+  el.textContent = emoji;
+  el.style.setProperty("--drift", Math.round((Math.random() - 0.5) * size * 0.6) + "px");
+  $("walker").appendChild(el);
+  setTimeout(() => el.remove(), 2400);
+}
+
 // --- sa voix dans OBS (option) : chaque phrase est jouée par cette page, qui a sa propre
 // piste dans le mélangeur d'OBS (cocher « Contrôler l'audio via OBS » dans la source).
 const voiceQueue = [];
@@ -346,6 +368,7 @@ function connect() {
     else if (msg.type === "reload") location.reload();
     else if (msg.type === "audio") queueVoice(msg.id);
     else if (msg.type === "style") applyStyle(msg);
+    else if (msg.type === "react") react(msg.emoji);
   };
 }
 setState("idle");

@@ -221,6 +221,9 @@ class Copilot:
             quick=True,
         )
         started = time.perf_counter()
+        from alicia.core import usage
+
+        usage.add("copilot")
         result = model.analyze(request)
         took = int((time.perf_counter() - started) * 1000)
         decision = parse_decision(result.text)
@@ -277,3 +280,44 @@ def parse_copilot_command(text: str) -> bool | None:
     if _ON.search(plain):
         return True
     return None
+
+
+# --- réglages du Copilote propres à un jeu --------------------------------------------------
+GAME_FIELDS = ("threshold", "cooldown_s", "interval_s", "kinds", "trash", "spontaneity")
+
+
+class GameCopilotSettings:
+    """Réglages du Copilote mémorisés pour un jeu (discret en classée, bavard en solo…).
+    Fichier : %APPDATA%\\Alicia\\copilote_jeux.json."""
+
+    def __init__(self, path=None) -> None:  # type: ignore[no-untyped-def]
+        if path is None:
+            from alicia.core.config import data_dir
+
+            path = data_dir() / "copilote_jeux.json"
+        self.path = path
+
+    def _load(self) -> dict:  # type: ignore[type-arg]
+        try:
+            data = json.loads(self.path.read_text("utf-8"))
+        except (OSError, ValueError):
+            return {}
+        return data if isinstance(data, dict) else {}
+
+    def get(self, key: str) -> dict | None:  # type: ignore[type-arg]
+        entry = self._load().get(key)
+        return entry if isinstance(entry, dict) else None
+
+    def games(self) -> list[tuple[str, str]]:
+        return [(k, str(v.get("name") or k)) for k, v in self._load().items()]
+
+    def remember(self, key: str, name: str, settings) -> None:  # type: ignore[no-untyped-def]
+        data = self._load()
+        data[key] = {"name": name, **{f: getattr(settings, f) for f in GAME_FIELDS}}
+        self.path.parent.mkdir(parents=True, exist_ok=True)
+        self.path.write_text(json.dumps(data, ensure_ascii=False, indent=2), encoding="utf-8")
+
+    def forget(self, key: str) -> None:
+        data = self._load()
+        if data.pop(key, None) is not None:
+            self.path.write_text(json.dumps(data, ensure_ascii=False, indent=2), encoding="utf-8")

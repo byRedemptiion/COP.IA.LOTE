@@ -18,6 +18,9 @@ def isolated_env(tmp_path, monkeypatch):
     from alicia.core.audio import voice_design
 
     voice_design.resume_online()  # pause « quota » d'un autre test : oubliée
+    from alicia.core import usage
+
+    usage.use_file(None)  # compteur de consommation : dans le dossier du test
     monkeypatch.setattr(voice_design, "on_notice", None)
     yield
 

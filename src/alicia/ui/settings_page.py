@@ -192,6 +192,7 @@ class SettingsPage(QWidget):
     test_voice = Signal()
     open_ai = Signal()
     voice_key = Signal(str, str)  # (fournisseur, clé) : jamais par setting_changed (journalisé)
+    clip_token = Signal(str)  # mot de passe OBS / jeton Streamlabs (jamais journalisé)
 
     def __init__(
         self,
@@ -554,6 +555,19 @@ class SettingsPage(QWidget):
             3,
         )
         self.output_box = QComboBox()
+        self.backup_voice_box = QComboBox()
+        self.backup_voice_box.addItem("Sa voix robot (sur ton PC, hors ligne)", "")
+        for name, label in EDGE_VOICES:
+            self.backup_voice_box.addItem(f"Edge — {label}", name)
+        self.backup_voice_box.currentIndexChanged.connect(
+            lambda _i: self._emit("backup_voice", self.backup_voice_box.currentData())
+        )
+        self.backup_voice_box.setToolTip(
+            "Quand la voix en ligne ne répond pas (quota Gemini atteint, coupure), cette voix "
+            "prend le relais. Les voix Edge sont gratuites et sans quota."
+        )
+        grid.addWidget(QLabel("Secours"), 11, 0)
+        grid.addWidget(self.backup_voice_box, 11, 1, 1, 2)
         grid.addWidget(QLabel("Sortie"), 5, 0)
         grid.addWidget(self.output_box, 5, 1, 1, 2)
         self.voice_test = QPushButton("Tester la voix")
@@ -561,6 +575,7 @@ class SettingsPage(QWidget):
         grid.addWidget(self.voice_test, 6, 0)
         self._tab_layouts["profile"].addWidget(voice)
         self._tab_layouts["profile"].addWidget(self._voice_gallery())
+        self._tab_layouts["profile"].addWidget(self._notebook_panel())
 
         # --- Stream ---------------------------------------------------------------------------------
         stream, grid = _panel()
@@ -617,6 +632,7 @@ class SettingsPage(QWidget):
         self._tab_layouts["stream"].addWidget(stream)
         self._tab_layouts["stream"].addWidget(self._overlay_style_panel())
         self._tab_layouts["stream"].addWidget(self._chat_panel())
+        self._tab_layouts["stream"].addWidget(self._clip_panel())
 
         # --- Duo -----------------------------------------------------------------------------------
         duo, grid = _panel()
@@ -904,6 +920,7 @@ class SettingsPage(QWidget):
         grid.addWidget(self.voice_key_state, 3, 1, 1, 2)
         advanced_box.addWidget(keys_panel)
         advanced_box.addWidget(self._ai_ollama)
+        self._tab_layouts["ai"].addWidget(self._usage_panel())
         self._tab_layouts["ai"].addWidget(_collapsible("Avancé : clés API et Ollama", advanced_ai))
 
         general, grid = _panel()
@@ -1112,12 +1129,14 @@ class SettingsPage(QWidget):
             1,
             3,
         )
+        self._tab_layouts["copilot"].addWidget(self._copilot_games_panel())
         self._tab_layouts["copilot"].addWidget(_collapsible("Avancé", advanced))
 
         # --- Raccourcis ---------------------------------------------------------------------------
         self.shortcuts = shortcuts
         self._tab_layouts["general"].addWidget(shortcuts)
         self._tab_layouts["general"].addWidget(self._update_panel)
+        self._tab_layouts["general"].addWidget(self._backup_panel())
         # Profil : identité, voix, catalogue, puis animations
         self._tab_layouts["profile"].removeWidget(anims_panel)
         self._tab_layouts["profile"].addWidget(anims_panel)
@@ -1520,6 +1539,9 @@ class SettingsPage(QWidget):
                 self.gemini_voice_box.findData(voice.gemini_voice)
             )
             self.effect_box.setCurrentIndex(max(0, self.effect_box.findData(voice.voice_effect)))
+            self.backup_voice_box.setCurrentIndex(
+                max(0, self.backup_voice_box.findData(voice.backup_voice))
+            )
             self.voice_style.setText(voice.voice_style)
             self.load_fx(voice)
             self.show_voice_keys(voice.own_keys)
@@ -1808,6 +1830,222 @@ class SettingsPage(QWidget):
     def show_duo(self, text: str) -> None:
         self.duo_state.setText(text)
 
+    def _copilot_games_panel(self) -> QWidget:
+        """Réglages du Copilote propres au jeu en cours, et le débrief de fin de partie."""
+        panel, grid = _panel()
+        grid.addWidget(_title("🎮  PAR JEU ET DÉBRIEF"), 0, 0, 1, 3)
+        self.copilot_game_state = _muted("Jeu en cours : aucun")
+        grid.addWidget(self.copilot_game_state, 1, 0, 1, 3)
+        remember = QPushButton("Mémoriser ces réglages pour ce jeu")
+        remember.clicked.connect(lambda: self._emit("copilot_game_remember", True))
+        forget = QPushButton("Revenir aux réglages généraux")
+        forget.setObjectName("ghost")
+        forget.clicked.connect(lambda: self._emit("copilot_game_forget", True))
+        grid.addWidget(remember, 2, 0)
+        grid.addWidget(forget, 2, 1)
+        debrief = QPushButton("📝  Débrief de la partie")
+        debrief.clicked.connect(lambda: self._emit("debrief", True))
+        grid.addWidget(debrief, 3, 0)
+        grid.addWidget(
+            _muted(
+                "Règle le Copilote comme tu le veux pour le jeu en cours (ex. discret en "
+                "classée), puis « Mémoriser » : il reprend ces réglages tout seul dès que ce jeu "
+                "est au premier plan. Débrief (ou « VIIRUS, fais-moi le débrief ») : un bilan "
+                "de la dernière heure, à partir de la mémoire de partie."
+            ),
+            4,
+            0,
+            1,
+            3,
+        )
+        return panel
+
+    def _notebook_panel(self) -> QWidget:
+        """Carnet de partie : ce que tu lui as demandé de retenir, jeu par jeu."""
+        from PySide6.QtWidgets import QListWidget
+
+        panel, grid = _panel()
+        grid.addWidget(_title("📒  CARNET DE PARTIE"), 0, 0, 1, 3)
+        self.notebook_game = QComboBox()
+        self.notebook_game.currentIndexChanged.connect(lambda _i: self._show_notes())
+        grid.addWidget(QLabel("Jeu"), 1, 0)
+        grid.addWidget(self.notebook_game, 1, 1, 1, 2)
+        self.notebook_list = QListWidget()
+        self.notebook_list.setFixedHeight(130)
+        grid.addWidget(self.notebook_list, 2, 0, 1, 3)
+        self.notebook_input = QLineEdit()
+        self.notebook_input.setPlaceholderText("ex. je joue Ashe en support")
+        add = QPushButton("Ajouter")
+        add.clicked.connect(self._add_note)
+        self.notebook_input.returnPressed.connect(self._add_note)
+        remove = QPushButton("✕ Supprimer la note")
+        remove.setObjectName("ghost")
+        remove.clicked.connect(self._remove_note)
+        grid.addWidget(self.notebook_input, 3, 0, 1, 2)
+        grid.addWidget(add, 3, 2)
+        grid.addWidget(remove, 4, 2)
+        grid.addWidget(
+            _muted(
+                "À la voix : « retiens que… », « note que… », « qu'est-ce que tu as noté ? », "
+                "« oublie que… ». Les notes du jeu en cours (et les notes générales) sont "
+                "rappelées à l'IA à chaque question et à chaque coup d'œil du Copilote."
+            ),
+            5,
+            0,
+            1,
+            3,
+        )
+        self._notebook = None
+        return panel
+
+    def show_notebook(self, book) -> None:  # type: ignore[no-untyped-def]
+        self._notebook = book
+        current = self.notebook_game.currentData()
+        self.notebook_game.blockSignals(True)
+        self.notebook_game.clear()
+        self.notebook_game.addItem("Général (hors jeu)", "general")
+        for key, name, count in book.games():
+            if key != "general":
+                self.notebook_game.addItem(f"{name} ({count})", key)
+        index = self.notebook_game.findData(current)
+        self.notebook_game.setCurrentIndex(max(0, index))
+        self.notebook_game.blockSignals(False)
+        self._show_notes()
+
+    def _show_notes(self) -> None:
+        self.notebook_list.clear()
+        if self._notebook is not None:
+            self.notebook_list.addItems(self._notebook.notes(self.notebook_game.currentData()))
+
+    def _add_note(self) -> None:
+        text = self.notebook_input.text().strip()
+        if self._notebook is None or not text:
+            return
+        key = self.notebook_game.currentData()
+        name = self.notebook_game.currentText().rsplit(" (", 1)[0]
+        self._notebook.add(key, "" if key == "general" else name, text)
+        self.notebook_input.clear()
+        self.show_notebook(self._notebook)
+
+    def _remove_note(self) -> None:
+        row = self.notebook_list.currentRow()
+        if self._notebook is None or row < 0:
+            return
+        self._notebook.remove(self.notebook_game.currentData(), row)
+        self.show_notebook(self._notebook)
+
+    def _backup_panel(self) -> QWidget:
+        panel, grid = _panel()
+        grid.addWidget(_title("💾  SAUVEGARDE"), 0, 0, 1, 3)
+        for col, (label, key) in enumerate(
+            (
+                ("Sauvegarder…", "backup_save"),
+                ("Restaurer…", "backup_restore"),
+                ("Sauvegardes automatiques", "backup_folder"),
+            )
+        ):
+            button = QPushButton(label)
+            button.clicked.connect(lambda _=False, k=key: self._emit(k, True))
+            grid.addWidget(button, 1, col)
+        self.backup_state = _muted(
+            "Tout dans un fichier : réglages, jeux, personnes, carnet, voix sur mesure, "
+            "habitués du chat et animations — jamais tes clés d'API (tu peux le partager). "
+            "Une sauvegarde automatique est faite chaque jour dans Documents\\COPIALOTE\\"
+            "sauvegardes (les 3 dernières)."
+        )
+        grid.addWidget(self.backup_state, 2, 0, 1, 3)
+        return panel
+
+    def _usage_panel(self) -> QWidget:
+        """Consommation du jour : appels à chaque service, et les quotas connus."""
+        from alicia.core.usage import COUNTERS
+
+        panel, grid = _panel()
+        grid.addWidget(_title("📊  CONSOMMATION AUJOURD'HUI"), 0, 0, 1, 3)
+        self.usage_rows: list[tuple[QLabel, QProgressBar, QLabel]] = []
+        for row, (_key, label, limit) in enumerate(COUNTERS, start=1):
+            name = QLabel(label)
+            bar = QProgressBar()
+            bar.setTextVisible(False)
+            bar.setFixedHeight(8)
+            bar.setVisible(limit is not None)
+            value = _muted("0")
+            grid.addWidget(name, row, 0)
+            grid.addWidget(bar, row, 1)
+            grid.addWidget(value, row, 2)
+            self.usage_rows.append((name, bar, value))
+        grid.addWidget(
+            _muted(
+                "Compté sur ce PC, remis à zéro à minuit. Les voix Gemini sont limitées par "
+                "Google (au niveau 1 : 100 par jour) ; au-delà, la voix de secours prend le "
+                "relais. Ton vrai quota : Google AI Studio → Rate limits."
+            ),
+            len(COUNTERS) + 1,
+            0,
+            1,
+            3,
+        )
+        grid.setColumnStretch(1, 1)
+        return panel
+
+    def show_usage(self, report: list) -> None:  # type: ignore[type-arg]
+        for (_name, bar, value), (_label, count, limit) in zip(
+            self.usage_rows, report, strict=False
+        ):
+            if limit:
+                bar.setRange(0, limit)
+                bar.setValue(min(count, limit))
+                value.setText(f"{count} / {limit}" + ("  ⚠" if count >= limit * 0.8 else ""))
+            else:
+                value.setText(str(count))
+
+    def _clip_panel(self) -> QWidget:
+        """« VIIRUS, clip ça » : la relecture instantanée d'OBS ou de Streamlabs."""
+        panel, grid = _panel()
+        grid.addWidget(_title("🎬  CLIPS (« VIIRUS, CLIP ÇA ! »)"), 0, 0, 1, 3)
+        self.clip_app = QComboBox()
+        self.clip_app.addItem("Désactivé", "")
+        self.clip_app.addItem("Streamlabs Desktop", "streamlabs")
+        self.clip_app.addItem("OBS Studio", "obs")
+        self.clip_app.currentIndexChanged.connect(
+            lambda _i: self._emit("clip_app", self.clip_app.currentData())
+        )
+        grid.addWidget(QLabel("Logiciel"), 1, 0)
+        grid.addWidget(self.clip_app, 1, 1, 1, 2)
+        self.clip_token_input = QLineEdit()
+        self.clip_token_input.setEchoMode(QLineEdit.EchoMode.Password)
+        self.clip_token_input.setPlaceholderText("jeton Streamlabs ou mot de passe OBS")
+        save = QPushButton("Enregistrer")
+        save.clicked.connect(self._send_clip_token)
+        grid.addWidget(QLabel("Accès"), 2, 0)
+        grid.addWidget(self.clip_token_input, 2, 1)
+        grid.addWidget(save, 2, 2)
+        self.clip_auto = QCheckBox("Le Copilote clippe tout seul les moments marquants")
+        self.clip_auto.toggled.connect(lambda on: self._emit("clip_auto", on))
+        grid.addWidget(self.clip_auto, 3, 0, 1, 3)
+        test = QPushButton("🎬  Faire un clip maintenant")
+        test.clicked.connect(lambda: self._emit("clip_now", True))
+        grid.addWidget(test, 4, 0)
+        self.clip_state = _muted("")
+        grid.addWidget(self.clip_state, 4, 1, 1, 2)
+        help_text = _muted(
+            "Il garde les dernières secondes de ton stream, sans rien toucher au jeu. À "
+            "activer dans ton logiciel : la <b>relecture instantanée</b> (replay buffer), et "
+            "le contrôle à distance.<br><b>Streamlabs</b> : Paramètres → Contrôle à distance → "
+            "afficher les détails → copie le jeton (port 59650).<br><b>OBS</b> : Outils → "
+            "Paramètres du serveur WebSocket → activer, puis copie le mot de passe (port 4455)."
+            "<br>À la voix : « clip ça », « fais un clip », « garde ce moment »."
+        )
+        help_text.setTextFormat(Qt.TextFormat.RichText)
+        grid.addWidget(help_text, 5, 0, 1, 3)
+        return panel
+
+    def _send_clip_token(self) -> None:
+        token = self.clip_token_input.text().strip()
+        if token:
+            self.clip_token.emit(token)
+        self.clip_token_input.clear()
+
     def _overlay_style_panel(self) -> QWidget:
         """Réglages de la bulle Stream (overlay OBS / Streamlabs), appliqués en direct."""
         panel, grid = _panel()
@@ -1925,6 +2163,9 @@ class SettingsPage(QWidget):
                 slider = self.ov_widgets[key]
                 slider.setValue(int(getattr(stream, key)))  # type: ignore[attr-defined]
             self.ov_side.setCurrentIndex(max(0, self.ov_side.findData(stream.ov_side)))
+            self.clip_app.setCurrentIndex(max(0, self.clip_app.findData(stream.clip_app)))
+            self.clip_auto.setChecked(stream.clip_auto)
+            self.clip_state.setText("✓ accès enregistré" if stream.clip_token else "")
             self.ov_subtitles.setChecked(stream.ov_subtitles)
             self.ov_roam.setChecked(stream.ov_roam)
         finally:
@@ -1969,6 +2210,16 @@ class SettingsPage(QWidget):
         )
         grid.addWidget(QLabel("Ignorer"), 5, 0)
         grid.addWidget(self.chat_ignored, 5, 1, 1, 2)
+        self.chat_regulars = QCheckBox("Se souvenir des habitués (« re Bob ! »)")
+        self.chat_regulars.toggled.connect(lambda on: self._emit("chat_regulars", on))
+        forget = QPushButton("Oublier les habitués")
+        forget.setObjectName("ghost")
+        forget.clicked.connect(lambda: self._emit("chat_regulars_clear", True))
+        self.chat_reactions = QCheckBox("Réagir au chat sur l'overlay (gg, lol, hype, ❤…)")
+        self.chat_reactions.toggled.connect(lambda on: self._emit("chat_reactions", on))
+        grid.addWidget(self.chat_regulars, 12, 0, 1, 2)
+        grid.addWidget(forget, 12, 2)
+        grid.addWidget(self.chat_reactions, 13, 0, 1, 3)
         self.chat_output = QComboBox()
         self.chat_output.currentIndexChanged.connect(
             lambda _i: self._emit("chat_output", self.chat_output.currentData() or "")
@@ -2026,6 +2277,8 @@ class SettingsPage(QWidget):
                 index = self.chat_cooldown.count() - 1
             self.chat_cooldown.setCurrentIndex(index)
             self.chat_names.setChecked(stream.chat_say_names)
+            self.chat_regulars.setChecked(stream.chat_regulars)
+            self.chat_reactions.setChecked(stream.chat_reactions)
             try:
                 outputs = self._output_devices()
             except Exception:  # noqa: BLE001 - pas de carte son : sortie par défaut seulement

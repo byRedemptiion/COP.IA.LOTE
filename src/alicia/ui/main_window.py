@@ -600,6 +600,7 @@ class MainWindow(QMainWindow):
         self.settings_page.test_voice.connect(self.test_voice)
         self.settings_page.open_ai.connect(self.open_setup)
         self.settings_page.voice_key.connect(self.save_voice_key)
+        self.settings_page.clip_token.connect(self.save_clip_token)
         from alicia.core import people
         from alicia.ui.people_page import PeoplePage
 
@@ -632,10 +633,244 @@ class MainWindow(QMainWindow):
         self.nav_keys.setChecked(index == 2)
         if index == 2:
             self._load_settings_page()
+            self._refresh_usage()
+            self._refresh_notebook()
+            if hasattr(self, "copilot"):
+                self._copilot_game_key = None
+                self._apply_copilot_game()
             if tab:
                 self.settings_page.show_tab(tab)
             if self.settings_page.current_tab == "games":
                 self.games_page.show_list()
+
+    def chat_reaction(self, text: str) -> None:
+        """Message du chat qui appelle une réaction : petit geste + émoji sur l'overlay."""
+        from alicia.stream.chat import chat_reaction
+
+        if not self.services.settings.stream.chat_reactions or self.overlay is None:
+            return
+        found = chat_reaction(text)
+        now = time.monotonic()
+        if found is None or now - getattr(self, "_last_reaction", 0.0) < 4.0:
+            return  # au plus une réaction toutes les 4 s
+        self._last_reaction = now
+        gesture, emoji = found
+        self.overlay.publish("gesture", name=gesture)
+        self.overlay.publish("react", emoji=emoji)
+
+    def save_clip_token(self, token: str) -> None:
+        """Mot de passe OBS / jeton Streamlabs, rangé dans le .env (jamais journalisé)."""
+        from dataclasses import replace
+
+        from alicia.core.config import Secret
+        from alicia.core.user_config import set_env
+
+        if any(c in token for c in "\r\n"):
+            return
+        try:
+            set_env("CLIP_TOKEN", token)
+        except (OSError, ValueError) as exc:
+            log.error("Accès clip non enregistré : %r", exc)
+            return
+        stream = replace(self.services.settings.stream, clip_token=Secret(token))
+        self.services.settings = replace(self.services.settings, stream=stream)
+        self.settings_page.clip_state.setText("✓ accès enregistré")
+        log.info("Accès clip enregistré (valeur masquée)")
+
+    def save_clip(self, auto: bool = False) -> None:
+        """Garde les dernières secondes du stream (relecture instantanée d'OBS / Streamlabs)."""
+        from alicia.stream.clip import PORTS, ClipError, save_clip
+
+        stream = self.services.settings.stream
+        if not stream.clip_app:
+            if not auto:
+                self._notify("⚠ Choisis ton logiciel de stream : Réglages → Stream → Clips.")
+            return
+        app, token = stream.clip_app, stream.clip_token.get() or ""
+
+        def done(_value) -> None:  # type: ignore[no-untyped-def]
+            self.settings_page.clip_state.setText("✓ clip gardé")
+            self.overlay_gesture("hop")
+            if not auto:
+                self._notify("🎬 Clip gardé !")
+
+        def failed(exc: Exception) -> None:
+            message = str(exc) if isinstance(exc, ClipError) else repr(exc)
+            self.settings_page.clip_state.setText("⚠ " + message)
+            if not auto:
+                self._notify("⚠ " + message)
+
+        self._background(lambda: save_clip(app, PORTS[app], token), done, failed)
+
+    def copilot_game(self, remember: bool) -> None:
+        """Mémorise (ou oublie) les réglages actuels du Copilote pour le jeu en cours."""
+        from alicia.core.copilot import GameCopilotSettings
+
+        key, name = self.services.analysis.game_key(None)
+        if key == "general":
+            self.settings_page.copilot_game_state.setText(
+                "⚠ Aucun jeu en cours : lance ton jeu (au premier plan), puis réessaie."
+            )
+            return
+        store = GameCopilotSettings()
+        if remember:
+            store.remember(key, name, self.services.settings.copilot)
+        else:
+            store.forget(key)
+        self._copilot_game_key = None  # réappliqué au prochain coup d'œil
+        self._apply_copilot_game()
+
+    def _apply_copilot_game(self) -> None:
+        """Au changement de jeu : ses réglages du Copilote, ou les réglages généraux."""
+        from alicia.core.copilot import GameCopilotSettings, kinds_from
+
+        key, name = self.services.analysis.game_key(None)
+        if key == getattr(self, "_copilot_game_key", None):
+            return
+        self._copilot_game_key = key
+        general = self.services.settings.copilot
+        own = GameCopilotSettings().get(key) if key != "general" else None
+        gate = self.copilot.gate
+        source = own or {}
+        gate.threshold = int(source.get("threshold", general.threshold))
+        gate.cooldown_s = float(source.get("cooldown_s", general.cooldown_s))
+        gate.kinds = kinds_from(str(source.get("kinds", general.kinds)))
+        gate.trash = str(source.get("trash", general.trash))
+        interval = float(source.get("interval_s", general.interval_s))
+        if general.enabled and self.copilot_timer.interval() != int(interval * 1000):
+            self.copilot_timer.start(int(interval * 1000))
+        label = getattr(self.settings_page, "copilot_game_state", None)
+        if label is not None:
+            if key == "general":
+                label.setText("Jeu en cours : aucun — réglages généraux.")
+            elif own:
+                label.setText(f"Jeu en cours : {name} — ✓ ses réglages à lui sont actifs.")
+            else:
+                label.setText(f"Jeu en cours : {name} — réglages généraux.")
+        if own:
+            log.info("Copilote : réglages propres à %s", name)
+
+    def debrief(self) -> None:
+        """Débrief de fin de partie (mémoire de partie + interventions du Copilote)."""
+        moments = tuple(self.copilot.gate.recent)
+        self._core("thinking")
+        self._set_status("📝 Débrief en préparation…")
+
+        def done(text: str) -> None:
+            title = current_persona().title.upper()
+            self.asked_label.setText(f"📝 DÉBRIEF DE {title}  ›")
+            self.answer.setPlainText(text)
+            self._set_status("📝 Débrief prêt.")
+            if self._bubble_active():
+                self.bubble.ask("📝 Débrief de la partie")
+            self._core("speaking")
+            self._bubble_finish(text, self._say(text))
+            QTimer.singleShot(1800, self._core_settle)
+
+        def failed(exc: Exception) -> None:
+            message = exc.user_message if isinstance(exc, AliciaError) else repr(exc)
+            log.warning("Débrief impossible : %s", getattr(exc, "detail", message))
+            self._notify("⚠ " + message)
+            self._core_settle()
+
+        self._background(lambda: self.services.analysis.debrief(60, moments), done, failed)
+
+    def notebook_action(self, intent: str) -> str:
+        """Carnet de partie : ajouter, lister, oublier (pour le jeu en cours)."""
+        from alicia.core.notebook import Notebook
+
+        kind, _, value = intent.removeprefix("note_").partition(":")
+        key, name = self.services.analysis.game_key(None)
+        where = f" pour {name}" if name else ""
+        book = Notebook()
+        if kind == "add":
+            book.add(key, name, value)
+            self._refresh_notebook()
+            return f"C'est noté{where}."
+        if kind == "forget":
+            removed = book.forget(key, value)
+            self._refresh_notebook()
+            return f"J'ai oublié {removed} note{'s' if removed > 1 else ''}{where}."
+        notes = book.notes(key) or book.notes("general")
+        if not notes:
+            return f"Je n'ai rien noté{where} pour l'instant."
+        return f"Dans mon carnet{where} : " + " ; ".join(notes[-6:]) + "."
+
+    def _refresh_notebook(self) -> None:
+        page = self.settings_page
+        if hasattr(page, "show_notebook"):
+            from alicia.core.notebook import Notebook
+
+            page.show_notebook(Notebook())
+
+    def save_backup(self, path: str | None = None) -> None:
+        from datetime import datetime
+
+        from alicia.core.backup import auto_folder, create_backup
+
+        if path is None:
+            from PySide6.QtWidgets import QFileDialog
+
+            default = auto_folder().parent / f"copialote-{datetime.now():%Y-%m-%d}.zip"
+            path, _ = QFileDialog.getSaveFileName(
+                self, "Sauvegarder COP'IA'LOTE", str(default), "Sauvegarde (*.zip)"
+            )
+            if not path:
+                return
+        try:
+            count = create_backup(Path(path))
+        except OSError as exc:
+            log.error("Sauvegarde impossible : %r", exc)
+            self.settings_page.backup_state.setText(f"⚠ Sauvegarde impossible : {exc}")
+            return
+        self.settings_page.backup_state.setText(f"✓ {count} fichiers sauvegardés dans {path}")
+
+    def restore_backup(self, path: str | None = None, confirm: bool = True) -> None:
+        from alicia.core.backup import auto_folder, restore_backup
+
+        if path is None:
+            from PySide6.QtWidgets import QFileDialog
+
+            path, _ = QFileDialog.getOpenFileName(
+                self, "Restaurer COP'IA'LOTE", str(auto_folder()), "Sauvegarde (*.zip)"
+            )
+            if not path:
+                return
+        if confirm:
+            from PySide6.QtWidgets import QMessageBox
+
+            answer = QMessageBox.question(
+                self,
+                "Restaurer",
+                "Remplacer tes réglages actuels par cette sauvegarde ? (Tes clés ne sont pas "
+                "touchées.) COP'IA'LOTE redémarrera.",
+            )
+            if answer != QMessageBox.StandardButton.Yes:
+                return
+        try:
+            count = restore_backup(Path(path))
+        except (OSError, ValueError, Exception) as exc:  # noqa: BLE001 - zip abîmé, etc.
+            log.error("Restauration impossible : %r", exc)
+            self.settings_page.backup_state.setText(f"⚠ Restauration impossible : {exc}")
+            return
+        self.settings_page.backup_state.setText(f"✓ {count} fichiers restaurés.")
+        if confirm:
+            self.restart()
+
+    def _refresh_usage(self) -> None:
+        """Compteur de consommation (Réglages → IA), rafraîchi toutes les 5 s s'il est affiché."""
+        from alicia.core import usage
+
+        page = self.settings_page
+        if hasattr(page, "show_usage"):
+            page.show_usage(usage.report())
+        timer = getattr(self, "_usage_timer", None)
+        if timer is None:
+            timer = self._usage_timer = QTimer(self)
+            timer.timeout.connect(
+                lambda: self._refresh_usage() if self.settings_page.isVisible() else None
+            )
+            timer.start(5000)
 
     # --- vision ---------------------------------------------------------------------------------
 
@@ -880,6 +1115,7 @@ class MainWindow(QMainWindow):
                 "openai_voice",
                 "voice_effect",
                 "voice_style",
+                "backup_voice",
                 "fx_pitch",
                 "fx_metal",
                 "fx_bright",
@@ -964,6 +1200,8 @@ class MainWindow(QMainWindow):
         elif key in ("fx_pitch", "fx_metal", "fx_bright"):
             number = float(value) if key == "fx_pitch" else int(value)  # type: ignore[call-overload,arg-type]
             self._update_voice(**{key: number})
+        elif key == "backup_voice":
+            self._update_voice(backup_voice=str(value or ""))
         elif key == "voice_style":
             self._update_voice(voice_style=" ".join(str(value or "").split())[:300])
         elif key == "voice_preview":
@@ -1063,6 +1301,10 @@ class MainWindow(QMainWindow):
             "ov_alpha",
             "ov_subtitles",
             "ov_roam",
+            "clip_app",
+            "clip_auto",
+            "chat_regulars",
+            "chat_reactions",
         ):
             from dataclasses import replace
 
@@ -1072,6 +1314,9 @@ class MainWindow(QMainWindow):
                 "overlay_voice": bool,
                 "ov_subtitles": bool,
                 "ov_roam": bool,
+                "clip_auto": bool,
+                "chat_regulars": bool,
+                "chat_reactions": bool,
                 "ov_size": int,
                 "ov_width": int,
                 "ov_font": int,
@@ -1083,6 +1328,25 @@ class MainWindow(QMainWindow):
             self.stream_mode.configure()
             if key.startswith("ov_") and self.overlay is not None:
                 self.overlay.publish("style", **self._overlay_style())  # en direct
+        elif key == "chat_regulars_clear":
+            self.stream_mode.viewers.clear()
+            self._notify("Habitués du chat oubliés.")
+        elif key == "clip_now":
+            self.save_clip()
+        elif key == "debrief":
+            self.debrief()
+        elif key in ("copilot_game_remember", "copilot_game_forget"):
+            self.copilot_game(key.endswith("remember"))
+        elif key == "backup_save":
+            self.save_backup()
+        elif key == "backup_restore":
+            self.restore_backup()
+        elif key == "backup_folder":
+            from alicia.core.backup import auto_folder
+
+            folder = auto_folder()
+            folder.mkdir(parents=True, exist_ok=True)
+            QDesktopServices.openUrl(QUrl.fromLocalFile(str(folder)))
         elif key == "overlay_sample":
             self._overlay_sample()
         elif key == "overlay_notice":
@@ -1878,8 +2142,19 @@ class MainWindow(QMainWindow):
                 "close": "C'est fermé.",
             }
             return ActionReply(texts[guide], f"guide_{guide}", done=True)
+        from alicia.core.notebook import parse_debrief_command, parse_note_command
         from alicia.core.persona import parse_name_command
         from alicia.stream.chat import parse_stream_command
+        from alicia.stream.clip import parse_clip_command
+
+        if parse_clip_command(text):  # « clip ça ! »
+            return ActionReply("Clip !", "clip", done=True)
+        if parse_debrief_command(text):  # « fais-moi le débrief »
+            return ActionReply("Je prépare ton débrief…", "debrief", done=True)
+        noted = parse_note_command(text)  # « retiens que… », « qu'as-tu noté ? »
+        if noted is not None:
+            kind, value = noted
+            return ActionReply("…", f"note_{kind}:{value}", done=True)
 
         name = parse_name_command(text)  # « je m'appelle Yannick » : retenu pour toujours
         if name is not None:
@@ -2514,6 +2789,15 @@ class MainWindow(QMainWindow):
 
             # Raccourci du bureau au nom et à l'icône du profil (VIIRUS, ALICIA…)
             sync_shortcuts_async(current_persona(), install_root(), state_dir() / "icons")
+            from alicia.core.backup import auto_backup
+
+            # Sauvegarde du jour (Documents\COPIALOTE\sauvegardes), en arrière-plan
+            QTimer.singleShot(
+                30000,
+                lambda: threading.Thread(
+                    target=auto_backup, name="alicia-backup", daemon=True
+                ).start(),
+            )
             self.prepare_ollama()
             self.set_memory(self.services.settings.capture.memory, save=False)
             self.set_live(self.services.settings.capture.live, save=False)
@@ -3660,6 +3944,12 @@ class MainWindow(QMainWindow):
             return
         if reply.intent in ("copilot_on", "copilot_off"):
             self.set_copilot(reply.intent == "copilot_on")
+        if reply.intent == "clip":
+            QTimer.singleShot(0, self.save_clip)
+        if reply.intent == "debrief":
+            QTimer.singleShot(0, self.debrief)
+        if reply.intent.startswith("note_"):
+            reply.text = self.notebook_action(reply.intent)
         if reply.intent.startswith("player_name:"):
             self.change_setting("player_name", reply.intent.split(":", 1)[1])
             self.settings_page.player_name.setText(self.services.settings.player.name)
@@ -3735,6 +4025,7 @@ class MainWindow(QMainWindow):
         self.copilot.gate.cooldown_s = settings.cooldown_s
         self.copilot.gate.kinds = kinds_from(settings.kinds)
         self.copilot.gate.trash = settings.trash
+        self._copilot_game_key = None  # les réglages propres au jeu seront réappliqués
         if on:
             self.copilot_timer.start(int(settings.interval_s * 1000))
         else:
@@ -3807,6 +4098,7 @@ class MainWindow(QMainWindow):
             return
         # Toujours l'écran de cet instant : une image vieille de 10 s, c'est un conseil en retard.
         frame = self._live_frame(1.5)
+        self._apply_copilot_game()  # réglages propres au jeu en cours, s'il y en a
         model = self.services.model
         self._copilot_running = True
         if self.core.state == "idle":
@@ -3832,6 +4124,7 @@ class MainWindow(QMainWindow):
                 shot.image, min(capture.max_image_side, 768), capture.jpeg_quality
             )
             profile, note = self.services.analysis.game_for(shot.window)
+            note += self.services.analysis.notebook_note(shot.window)  # carnet de partie
             return self.copilot.observe(model, image, profile.prompt_context(False) + note)
 
         def done(value) -> None:  # type: ignore[no-untyped-def]
@@ -3843,6 +4136,12 @@ class MainWindow(QMainWindow):
             self._copilot_note("parle" if speak else why or "se tait")
             if speak and decision is not None and self.services.settings.copilot.enabled:
                 self._copilot_speak(decision.message, decision.importance)
+                if (
+                    self.services.settings.stream.clip_auto
+                    and decision.category in ("reaction", "humour")
+                    and decision.importance >= 8
+                ):
+                    self.save_clip(auto=True)  # moment marquant : gardé en clip
 
         def failed(exc: Exception) -> None:
             self._copilot_running = False

@@ -287,3 +287,26 @@ class TwitchChat:
                 sock.close()
             except OSError:
                 pass
+
+
+# Petites réactions sur l'overlay aux messages du chat : (mots-clés, geste, émoji)
+REACTIONS: tuple[tuple[tuple[str, ...], str, str], ...] = (
+    (("gg", "ggwp", "bien joue", "bravo", "clutch", "insane", "incroyable"), "hop", "🏆"),
+    (("hype", "pog", "poggers", "letsgo", "lets go", "go go", "allez"), "spin", "🔥"),
+    (("lol", "mdr", "ptdr", "xd", "kekw", "lmao", "haha", "hahaha"), "wiggle", "😂"),
+    (("<3", "love", "je t'aime", "trop mignon", "mignon", "cute"), "nod", "💜"),
+    (("rip", "f", "oof", "aie", "dommage", "noooo", "nooon"), "shake", "💀"),
+    (("hello", "salut", "bonjour", "coucou", "yo", "hi"), "nod", "👋"),
+)
+
+
+def chat_reaction(text: str) -> tuple[str, str] | None:
+    """(geste, émoji) si le message appelle une petite réaction, sinon None."""
+    plain = unicodedata.normalize("NFKD", text.casefold())
+    plain = "".join(c for c in plain if not unicodedata.combining(c))
+    words = " " + re.sub(r"[^\w<3' ]", " ", plain) + " "
+    words = re.sub(r"\s+", " ", words)
+    for keys, gesture, emoji in REACTIONS:
+        if any(f" {k} " in words for k in keys):
+            return gesture, emoji
+    return None

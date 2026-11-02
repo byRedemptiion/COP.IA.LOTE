@@ -35,6 +35,10 @@
 - 📖 **Guides** : il trouve le bon guide, l'ouvre ou t'affiche la carte utile.
 - 🔊 **Voix** : Edge (gratuit), Gemini, ChatGPT, voix sur mesure ou voix robot locales, avec effets.
 - 🖥 **Actions sur le PC** : volume, lancer une appli, rappels… Jamais rien dans le jeu.
+- 📒 **Carnet de partie** : « retiens que je joue Ashe en support » — il s'en souvient, jeu par jeu.
+- 📝 **Débrief** : « fais-moi le débrief » — bilan de ta partie et conseils pour la suivante.
+- 🎬 **Clips** : « clip ça ! » — il garde les dernières secondes dans OBS ou Streamlabs.
+- 💾 **Sauvegarde** : tout en un fichier (sans tes clés), plus une sauvegarde automatique chaque jour.
 
 ## Installer
 

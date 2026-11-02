@@ -253,6 +253,7 @@ class AnalysisService:
                     + _pages_note(found_pages)
                     + (_guide_rules() if web_search else "")
                     + _duo_rules(self.duo_peer)
+                    + self.notebook_note(window)
                     + vision_note(frame)
                     + past_note
                     + ("\n" + UNDERSTOOD_QUESTION if dictated else ""),
@@ -300,6 +301,9 @@ class AnalysisService:
                     on_transcript or (lambda _t: None), on_delta or (lambda _t: None)
                 )
                 sink = splitter.feed
+            from alicia.core import usage
+
+            usage.add("questions")
             try:
                 result = model.analyze(request, on_delta=sink, cancel=cancel)
             except ProviderError as exc:
@@ -407,6 +411,92 @@ class AnalysisService:
                 transcript or (question if dictated else local_transcript),
             )
 
+    def debrief(self, minutes: int = 60, moments: tuple[str, ...] = ()) -> str:
+        """Débrief de fin de partie : images de la mémoire de partie (jusqu'à 8) et
+        interventions du Copilote, résumées par le cerveau réfléchi (ou rapide)."""
+        from datetime import UTC, datetime, timedelta
+
+        from PIL import Image
+
+        from alicia.core.ai.prompts import build_system_prompt
+
+        entries = []
+        if self.timeline is not None:
+            since = datetime.now(UTC) - timedelta(minutes=minutes)
+            entries = [(when, path) for when, path in self.timeline.entries() if when >= since]
+        if len(entries) > 8:  # 8 images réparties sur la partie
+            step = (len(entries) - 1) / 7
+            entries = [entries[round(i * step)] for i in range(8)]
+        images, times = [], []
+        for when, path in entries:
+            try:
+                with Image.open(path) as picture:
+                    images.append(prepare_image(picture.convert("RGB"), 1024, 80))
+                times.append(when.astimezone().strftime("%H:%M"))
+            except OSError:
+                continue
+        if not images and not moments:
+            raise AliciaError(
+                "Rien à débriefer : active la mémoire de partie (Réglages → Perception), joue, "
+                "puis redemande-moi le débrief.",
+                detail="débrief sans images ni interventions",
+            )
+        key, name = self.game_key(None)
+        notes = ""
+        if moments:
+            notes += "\nCe que tu as dit pendant la partie (Copilote) :\n" + "\n".join(
+                f"- {m}" for m in moments[-10:]
+            )
+        if times:
+            notes += f"\nImages jointes, dans l'ordre : {', '.join(times)}."
+        model = self.deep_model or self.model
+        rules = (
+            "\nDÉBRIEF DE FIN DE PARTIE : le joueur te demande un bilan de sa partie"
+            + (f" de {name}" if name else "")
+            + ". À partir des images (moments de la partie) et de ce que tu as dit pendant, "
+            "fais un débrief parlé, chaleureux et honnête : 1) ce qui s'est passé en deux "
+            "phrases, 2) ce qui était bien, 3) les erreurs qui se répètent, 4) deux ou trois "
+            "conseils concrets pour la prochaine fois. Pas de markdown, 150 mots maximum."
+        )
+        from alicia.core import usage
+
+        usage.add("questions")
+        result = model.analyze(
+            AnalysisRequest(
+                question="Fais-moi le débrief de ma partie.",
+                images=tuple(images),
+                system_prompt=build_system_prompt(
+                    rules + notes + self.notebook_note(None), spoken=True, brain="reflechi"
+                ),
+                max_output_tokens=1200,
+                temperature=0.5,
+            )
+        )
+        log.info("Débrief : %d image(s), %d intervention(s)", len(images), len(moments))
+        return result.text.strip()
+
+    def game_key(self, window: WindowInfo | None = None) -> tuple[str, str]:
+        """(clé, nom) du jeu en cours pour le carnet ; ("general", "") hors jeu."""
+        profile, _note = self.game_for(window) if window is not None else (GENERIC, "")
+        if window is None or profile is GENERIC:
+            recent = self.last_game
+            if recent is not None and time.monotonic() - recent[2] < GAME_MEMORY_S:
+                profile, window = recent[0], recent[1]
+        if profile is not GENERIC:
+            return profile.key, profile.name
+        if window is not None and window.exe_name:
+            return "exe:" + window.exe_name.casefold(), window.title[:60] or window.exe_name
+        return "general", ""
+
+    def notebook_note(self, window: WindowInfo | None) -> str:
+        from alicia.core.notebook import Notebook
+
+        key, name = self.game_key(window)
+        try:
+            return Notebook().prompt_note(key, name or "ce jeu")
+        except Exception:  # noqa: BLE001 - le carnet ne bloque jamais une réponse
+            return ""
+
     def note_window(self, window: WindowInfo | None) -> None:
         """Retient le jeu au premier plan (appelé à chaque capture de la vision en direct)."""
         if window is None or not window.handle:
@@ -450,6 +540,10 @@ class AnalysisService:
 
     def _transcribe(self, transcriber, audio):  # type: ignore[no-untyped-def]
         """Transcrit ; si Gemini échoue (réseau, quota), Whisper sur le PC prend le relais."""
+        if transcriber is not self.transcriber:
+            from alicia.core import usage
+
+            usage.add("stt")
         try:
             return transcriber.transcribe(audio)
         except ProviderError as exc:
