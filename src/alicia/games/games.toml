@@ -1,0 +1,87 @@
+# Profils de jeu d'ALICIA.
+#
+# Un profil dit à ALICIA quel est le jeu (elle ne perd pas de temps à le deviner),
+# quoi regarder à l'écran, et sur quels sites chercher en priorité quand la recherche
+# web est active. Pour ajouter un jeu ou changer les sites, écris un fichier
+#   %APPDATA%\Alicia\games.toml
+# avec le même format (alicia-diag games le crée pour toi). Sous un nom déjà présent
+# ci-dessous, seuls les champs que tu écris changent (par exemple juste `sources`) ;
+# un nouveau nom ajoute un jeu.
+#
+#   [mon-jeu]
+#   name = "Nom affiché"
+#   folder = ["_retail_"]             # dossier d'installation (versions d'un même jeu)
+#   exe = ["jeu.exe"]                 # nom du programme (voir le journal d'ALICIA)
+#   title = ["mot du titre"]          # ou un mot du titre de la fenêtre
+#   sources = ["site.com/rubrique"]   # sites de référence, du plus fiable au moins fiable
+#   context = """Ce qu'ALICIA doit savoir sur le jeu."""
+
+[overwatch]
+name = "Overwatch"
+exe = ["overwatch.exe"]
+title = ["overwatch"]
+sources = [
+    "overwatch.blizzard.com",      # notes de patch officielles
+    "mobalytics.gg/overwatch",     # builds Stadium, tier lists
+    "liquipedia.net/overwatch",    # héros, cartes, scène compétitive
+]
+context = """
+Le jeu est Overwatch (FPS en équipe, héros répartis en rôles tank, dégâts et soutien).
+- Identifie le héros du joueur à partir de son HUD (portrait, capacités, arme) avant de conseiller.
+- En mode Stadium, le joueur achète entre les manches des objets et des pouvoirs avec une monnaie : compare les cartes visibles selon le héros, leur texte lisible et leur coût.
+- Les valeurs d'équilibrage changent à chaque saison : ne cite que les chiffres lisibles à l'écran, ou ceux d'une source récente.
+"""
+
+[wow-forever]
+name = "World of Warcraft: Forever"
+# Les versions de WoW partagent le titre « World of Warcraft » : ALICIA les distingue par
+# le dossier d'installation (World of Warcraft\_forever_\…). La bêta était dans _classic_beta_.
+folder = ["_forever_", "_forever_beta_", "_classic_beta_"]
+exe = ["wowforever.exe"]
+title = ["world of warcraft"]   # en dernier recours : le WoW joué le plus souvent
+sources = [
+    "icy-veins.com/wow-forever",   # guides de classe, talents, donjons et raids
+    "method.gg/wow-forever",       # donjons, raids
+    "mobalytics.gg/wow-forever",   # builds, guides de la communauté
+    "warcrafttavern.com/forever",  # actualités, guides
+    "warcraft.wiki.gg",            # wiki : quêtes, PNJ, objets, histoire
+]
+context = """
+Le jeu est World of Warcraft: Forever (« Classic+ », lancé en novembre 2026) : une branche à part de WoW, ni la version actuelle ni Classic.
+- Base du jeu de 2004, niveau maximum 60. Talents et spécialisations rééquilibrés (double spécialisation au niveau 40), nouvelles zones (mont Hyjal, Riverglades, Shen'dralas, île de Zephras), nouvelle race Skyborne, plus de 1 000 quêtes inédites, méga-royaumes selon les règles (Normal, JcJ, JdR, JdR-JcJ, Hardcore).
+- Les guides Classic ou de la version actuelle ne s'appliquent pas toujours : vérifie que la source parle bien de Forever, et dis-le quand ce n'est pas le cas.
+- Lis l'écran avant de conseiller : classe et niveau, zone, quête suivie, sorts sur les barres, butin, chat de groupe.
+- Pour une quête, donne l'étape suivante et où aller ; pour un objet, compare avec ce que le joueur porte si c'est visible.
+"""
+
+[wow-retail]
+name = "World of Warcraft (version actuelle)"
+folder = ["_retail_", "_ptr_", "_beta_"]
+exe = ["wow.exe"]
+sources = [
+    "wowhead.com",                 # base de données : quêtes, objets, PNJ
+    "icy-veins.com/wow",           # guides de classe
+    "method.gg",                   # donjons et raids
+    "raider.io",                   # Mythique+
+    "warcraft.wiki.gg",
+]
+context = """
+Le jeu est World of Warcraft dans sa version actuelle (extension en cours, Mythique+, raids).
+- Lis l'écran avant de conseiller : classe, spécialisation, niveau d'objet, zone, quête suivie, interface du donjon.
+- Les talents et l'équilibrage changent à chaque patch : préfère les sources récentes.
+"""
+
+[wow-classic]
+name = "WoW Classic"
+folder = ["_classic_", "_classic_era_", "_classic_ptr_", "_anniversary_"]
+exe = ["wowclassic.exe"]
+sources = [
+    "wowhead.com/classic",
+    "icy-veins.com/wow-classic",
+    "warcraft.wiki.gg",
+]
+context = """
+Le jeu est une version Classic de World of Warcraft (Classic Era, Hardcore ou une extension Classic).
+- Identifie la version à l'écran si possible (niveau maximum, interface) avant de conseiller.
+- Les guides de la version actuelle de WoW ne s'appliquent pas : vérifie que la source parle bien de Classic.
+"""
