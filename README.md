@@ -1,6 +1,6 @@
-# Alice — copilote IA pour jeux vidéo (Windows)
+# COP.IA.LOTE IA pour jeux vidéo (Windows)
 
-Alice regarde la fenêtre de ton jeu, et quand tu lui poses une question, elle analyse la capture et te répond en quelques secondes. **Elle observe et conseille seulement** : aucun clic, aucune touche, aucune injection dans le jeu, aucune lecture de sa mémoire.
+VIIRUS ou ALICIA regarde la fenêtre de ton jeu, et quand tu lui poses une question, elle analyse la capture et te répond en quelques secondes. **Elle observe et conseille seulement** : aucun clic, aucune touche, aucune injection dans le jeu, aucune lecture de sa mémoire.
 
 **Version 0.1** : capture d'une fenêtre (même en plein écran), question texte, réponse de l'IA affichée mot par mot, logs détaillés. La voix, la capture automatique et les interventions spontanées arrivent dans les versions suivantes ([feuille de route](docs/architecture.md#feuille-de-route)).
 
