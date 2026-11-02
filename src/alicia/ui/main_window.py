@@ -1056,16 +1056,37 @@ class MainWindow(QMainWindow):
             "chat_ignored",
             "chat_output",
             "overlay_voice",
+            "ov_size",
+            "ov_side",
+            "ov_width",
+            "ov_font",
+            "ov_alpha",
+            "ov_subtitles",
+            "ov_roam",
         ):
             from dataclasses import replace
 
-            kind = {"chat_cooldown_s": float, "chat_say_names": bool, "overlay_voice": bool}.get(
-                key, str
-            )
+            kind = {
+                "chat_cooldown_s": float,
+                "chat_say_names": bool,
+                "overlay_voice": bool,
+                "ov_subtitles": bool,
+                "ov_roam": bool,
+                "ov_size": int,
+                "ov_width": int,
+                "ov_font": int,
+                "ov_alpha": int,
+            }.get(key, str)
             stream = replace(self.services.settings.stream, **{key: kind(value)})
             self.services.settings = replace(self.services.settings, stream=stream)
             self._save("stream", key, kind(value))
             self.stream_mode.configure()
+            if key.startswith("ov_") and self.overlay is not None:
+                self.overlay.publish("style", **self._overlay_style())  # en direct
+        elif key == "overlay_sample":
+            self._overlay_sample()
+        elif key == "overlay_notice":
+            self._notify("⚠ " + str(value))
         elif key == "twitch_open":
             self.open_twitch_chat()
         elif key == "overlay_copy":
@@ -1586,7 +1607,37 @@ class MainWindow(QMainWindow):
             "states": {key: color.name() for key, color in theme.STATE_COLORS.items()},
             "anims": anims,
             "durations": durations,
+            "style": self._overlay_style(),
         }
+
+    def _overlay_style(self) -> dict:  # type: ignore[type-arg]
+        stream = self.services.settings.stream
+        return {
+            "size": stream.ov_size,
+            "side": stream.ov_side,
+            "width": stream.ov_width,
+            "font": stream.ov_font,
+            "alpha": stream.ov_alpha,
+            "subtitles": stream.ov_subtitles,
+            "roam": stream.ov_roam,
+        }
+
+    def _overlay_sample(self) -> None:
+        """Une réponse d'exemple sur l'overlay, 8 s : pour voir où s'affiche le texte."""
+        overlay = self.overlay
+        if overlay is None or not overlay.running:
+            self._notify("⚠ Active d'abord la page OBS (Réglages → Stream).")
+            return
+        if not overlay.clients:
+            self._notify("⚠ Aucune source OBS / Streamlabs n'affiche la page pour l'instant.")
+        name = current_persona().title
+        overlay.publish(
+            "text",
+            question="💬 Spectateur : t'es qui toi ?",
+            text=f"Moi c'est {name}, le copilote de cette partie ! Je surveille tout, promis.",
+        )
+        overlay.publish("gesture", name="nod")
+        overlay.publish("hide", after_ms=8000)
 
     @staticmethod
     def _anim_folder():  # type: ignore[no-untyped-def]

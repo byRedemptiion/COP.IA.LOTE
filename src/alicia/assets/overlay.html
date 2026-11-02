@@ -7,6 +7,7 @@
   :root {
     --accent: #ff3d8b; --cyan: #22e3ff; --soft: #ff8cc0; --gold: #f5b62a;
     --text: #e9eeff; --deep: #0a1240; --state: var(--accent); --size: 260px; --level: 0;
+    --bubble-w: 520px; --font: 18px; --alpha: .9; --gap: 26px;
   }
   html, body { margin: 0; height: 100%; overflow: hidden; background: transparent; }
   body { font-family: "Bahnschrift", "Segoe UI", Arial, sans-serif; }
@@ -93,19 +94,24 @@
 
   /* Sous-titres */
   #bubble {
-    position: absolute; left: 50%; top: calc(100% + var(--size) * .14);
+    position: absolute; left: 50%; top: calc(100% + var(--gap));
     transform: translateX(-50%) translateY(6px);
-    width: max-content; max-width: min(calc(var(--size) * 2.4), 90vw);
+    width: max-content; max-width: min(var(--bubble-w), var(--bubble-room, 92vw));
     padding: 10px 16px; border-radius: 16px;
-    background: linear-gradient(180deg, rgba(var(--deep-rgb), .92), rgba(var(--deep-rgb), .82));
+    background: linear-gradient(180deg, rgba(var(--deep-rgb), var(--alpha)),
+                rgba(var(--deep-rgb), calc(var(--alpha) * .9)));
     border: 1px solid var(--accent);
-    box-shadow: 0 0 18px rgba(0,0,0,.45);
-    color: var(--text); font-size: calc(var(--size) * .07); line-height: 1.35;
+    box-shadow: 0 0 18px rgba(0,0,0,calc(var(--alpha) * .5)), 0 0 12px var(--state);
+    color: var(--text); font-size: var(--font); line-height: 1.35;
     opacity: 0; transition: opacity .35s ease, transform .35s ease;
     pointer-events: none; text-align: left;
   }
   #bubble.show { opacity: 1; transform: translateX(-50%) translateY(0); }
-  #bubble.top { top: auto; bottom: calc(100% + var(--size) * .14); }
+  #bubble.top { top: auto; bottom: calc(100% + var(--gap)); }
+  #bubble.left, #bubble.right { top: 50%; transform: translateY(-50%) translateX(0); }
+  #bubble.left { left: auto; right: calc(100% + var(--gap)); }
+  #bubble.right { left: calc(100% + var(--gap)); }
+  #bubble.left.show, #bubble.right.show { transform: translateY(-50%); }
   #asked { color: var(--gold); font-size: .82em; margin-bottom: 3px; }
   #asked:empty { display: none; }
   #said { white-space: pre-wrap; }
@@ -125,9 +131,11 @@
 <script>
 const CONFIG = /*CONFIG*/{};
 const params = new URLSearchParams(location.search);
-const size = Math.max(80, Math.min(1200, +params.get("size") || 260));
-const withBubble = params.get("bulle") !== "0";
-const roam = params.get("roam") === "1";
+// Réglages de l'overlay : ceux de COP'IA'LOTE (Réglages → Stream), modifiables en direct ;
+// les options de l'adresse (?size=…, &bulle=0, &side=top, &roam=1) restent prioritaires.
+let size = 260;
+let withBubble = true;
+let roam = false;
 const root = document.documentElement.style;
 const body = document.body;
 const $ = (id) => document.getElementById(id);
@@ -135,7 +143,6 @@ const $ = (id) => document.getElementById(id);
 // --- personnage choisi (ALICIA / VIIRUS) : couleurs, portrait, cadrage ----------------------
 const colors = CONFIG.colors || {};
 for (const [key, value] of Object.entries(colors)) root.setProperty("--" + key, value);
-root.setProperty("--size", size + "px");
 const deep = (colors.deep || "#0a1240").replace("#", "");
 root.setProperty("--deep-rgb", [0, 2, 4].map((i) => parseInt(deep.slice(i, i + 2), 16)).join(","));
 const states = CONFIG.states || {};
@@ -145,7 +152,39 @@ portrait.style.backgroundImage = "url(/portrait)";
 portrait.style.backgroundSize = `${100 / fw}% ${100 / fh}%`;
 portrait.style.backgroundPosition =
   `${fw < 1 ? (fx / (1 - fw)) * 100 : 0}% ${fh < 1 ? (fy / (1 - fh)) * 100 : 0}%`;
-if (params.get("side") === "top") $("bubble").classList.add("top");
+function applyStyle(s) {
+  s = s || {};
+  size = Math.max(80, Math.min(1200, +params.get("size") || +s.size || 260));
+  withBubble = params.has("bulle") ? params.get("bulle") !== "0" : s.subtitles !== false;
+  roam = params.has("roam") ? params.get("roam") === "1" : !!s.roam;
+  root.setProperty("--size", size + "px");
+  root.setProperty("--gap", Math.round(size * 0.1) + "px");
+  root.setProperty("--bubble-w", (+s.width || Math.round(size * 2.4)) + "px");
+  root.setProperty("--font", (+s.font || Math.round(size * 0.07)) + "px");
+  root.setProperty("--alpha", Math.max(0, Math.min(100, s.alpha ?? 90)) / 100);
+  const side = params.get("side") || s.side || "bottom";
+  const bubble = $("bubble");
+  bubble.classList.remove("top", "left", "right");
+  if (side !== "bottom") bubble.classList.add(side);
+  if (!withBubble) bubble.classList.remove("show");
+  if (!roam) placeWalker(side);
+}
+// Sans promenade : le robot se place pour laisser la place aux sous-titres dans la source.
+function placeWalker(side) {
+  const half = Math.round(size * 0.6 + 12) + "px";  // rayon + anneaux extérieurs
+  const walker = $("walker");
+  walker.style.transition = "left .4s ease, top .4s ease";  // placement rapide (pas la promenade)
+  const bubbleOn = withBubble;
+  walker.style.left = !bubbleOn ? "50%" : side === "right" ? half
+    : side === "left" ? `calc(100% - ${half})` : "50%";
+  walker.style.top = !bubbleOn ? "50%" : side === "bottom" ? half
+    : side === "top" ? `calc(100% - ${half})` : "50%";
+  // Les sous-titres ne débordent jamais de la source
+  const room = side === "left" || side === "right"
+    ? window.innerWidth - size - size * 0.1 - 48 : window.innerWidth - 24;
+  root.setProperty("--bubble-room", Math.max(120, room) + "px");
+}
+applyStyle(CONFIG.style);
 
 // --- animations (facultatives) : %LOCALAPPDATA%\Alicia\anims\<robot>\<état>.webp -------
 // États en boucle (idle, listening, thinking, speaking, action, error), gestes joués une
@@ -264,12 +303,13 @@ function wander() {
     const margin = size * 0.75;
     const w = Math.max(window.innerWidth - 2 * margin, 1);
     const h = Math.max(window.innerHeight - 2 * margin - (withBubble ? size * 0.6 : 0), 1);
+    $("walker").style.transition = "";  // promenade : lente (6 s, voir le CSS)
     $("walker").style.left = margin + Math.random() * w + "px";
     $("walker").style.top = margin + Math.random() * h + "px";
   }
   setTimeout(wander, 15000 + Math.random() * 25000);
 }
-if (roam) setTimeout(wander, 3000);
+setTimeout(wander, 3000);  // tourne toujours : ne bouge que si « se promène » est actif
 
 // --- sa voix dans OBS (option) : chaque phrase est jouée par cette page, qui a sa propre
 // piste dans le mélangeur d'OBS (cocher « Contrôler l'audio via OBS » dans la source).
@@ -305,6 +345,7 @@ function connect() {
     else if (msg.type === "gesture") gesture(msg.name);
     else if (msg.type === "reload") location.reload();
     else if (msg.type === "audio") queueVoice(msg.id);
+    else if (msg.type === "style") applyStyle(msg);
   };
 }
 setState("idle");

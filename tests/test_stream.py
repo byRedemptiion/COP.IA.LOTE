@@ -192,3 +192,29 @@ def test_speaker_copies_each_sentence_for_obs_except_headset_only():
     speaker._thread.join(3)
     time.sleep(0.05)
     assert copies == [50, 50]  # « casque seul » : pas envoyé à OBS
+
+
+def test_overlay_style_is_live_and_sample_shows_text(qt_app, tmp_path, monkeypatch):
+    from alicia.app import build_services
+    from alicia.core.config import load_settings
+    from alicia.ui.main_window import MainWindow
+
+    monkeypatch.chdir(tmp_path)
+    window = MainWindow(
+        build_services(load_settings(environ={"ALICE_AI_PROVIDER": "fake"}), demo=True)
+    )
+    sent = []
+    try:
+        window.set_overlay(True, save=False)
+        assert window.overlay is not None
+        monkeypatch.setattr(window.overlay, "publish", lambda kind, **d: sent.append((kind, d)))
+        window.change_setting("ov_side", "left")
+        window.change_setting("ov_size", 340)
+        assert window.services.settings.stream.ov_side == "left"
+        style = [d for k, d in sent if k == "style"][-1]
+        assert style["side"] == "left" and style["size"] == 340
+        assert window._overlay_config()["style"]["side"] == "left"
+        window.change_setting("overlay_sample", True)
+        assert any(k == "text" and "spectateur" in d["question"].lower() for k, d in sent)
+    finally:
+        window.close()

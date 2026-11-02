@@ -615,6 +615,7 @@ class SettingsPage(QWidget):
         obs_help.setTextFormat(Qt.TextFormat.RichText)
         grid.addWidget(obs_help, 6, 0, 1, 3)
         self._tab_layouts["stream"].addWidget(stream)
+        self._tab_layouts["stream"].addWidget(self._overlay_style_panel())
         self._tab_layouts["stream"].addWidget(self._chat_panel())
 
         # --- Duo -----------------------------------------------------------------------------------
@@ -1807,6 +1808,128 @@ class SettingsPage(QWidget):
     def show_duo(self, text: str) -> None:
         self.duo_state.setText(text)
 
+    def _overlay_style_panel(self) -> QWidget:
+        """Réglages de la bulle Stream (overlay OBS / Streamlabs), appliqués en direct."""
+        panel, grid = _panel()
+        grid.addWidget(_title("🎛  BULLE STREAM (OBS / STREAMLABS)"), 0, 0, 1, 3)
+        self.ov_widgets: dict[str, QWidget] = {}
+        row = 1
+        for key, label, low, high, unit in (
+            ("ov_size", "Taille du robot", 80, 900, " px"),
+            ("ov_width", "Largeur des sous-titres", 160, 1600, " px"),
+            ("ov_font", "Taille du texte", 10, 60, " px"),
+            ("ov_alpha", "Opacité du fond", 0, 100, " %"),
+        ):
+            slider = QSlider(Qt.Orientation.Horizontal)
+            slider.setRange(low, high)
+            value = _muted("")
+            slider.valueChanged.connect(lambda v, lab=value, u=unit: lab.setText(f"{v}{u}"))
+            slider.sliderReleased.connect(lambda k=key, sl=slider: self._emit(k, sl.value()))
+            slider.valueChanged.connect(
+                lambda v, k=key, sl=slider: None if sl.isSliderDown() else self._emit(k, v)
+            )
+            grid.addWidget(QLabel(label), row, 0)
+            grid.addWidget(slider, row, 1)
+            grid.addWidget(value, row, 2)
+            self.ov_widgets[key] = slider
+            self.ov_widgets[key + "_label"] = value
+            row += 1
+        self.ov_side = QComboBox()
+        for key, label in (
+            ("bottom", "Sous le robot"),
+            ("top", "Au-dessus du robot"),
+            ("left", "À gauche du robot"),
+            ("right", "À droite du robot"),
+        ):
+            self.ov_side.addItem(label, key)
+        self.ov_side.currentIndexChanged.connect(
+            lambda _i: self._emit("ov_side", self.ov_side.currentData())
+        )
+        grid.addWidget(QLabel("Sous-titres"), row, 0)
+        grid.addWidget(self.ov_side, row, 1, 1, 2)
+        row += 1
+        self.ov_subtitles = QCheckBox("Afficher ses réponses en sous-titres")
+        self.ov_subtitles.toggled.connect(lambda on: self._emit("ov_subtitles", on))
+        self.ov_roam = QCheckBox("Il se promène dans toute la source (mets-la en 1920 × 1080)")
+        self.ov_roam.toggled.connect(lambda on: self._emit("ov_roam", on))
+        grid.addWidget(self.ov_subtitles, row, 0, 1, 3)
+        grid.addWidget(self.ov_roam, row + 1, 0, 1, 3)
+        sample = QPushButton("💬  Afficher un exemple")
+        sample.clicked.connect(lambda: self._emit("overlay_sample", True))
+        self.ov_preview_button = QPushButton("👁  Aperçu en direct")
+        self.ov_preview_button.setCheckable(True)
+        self.ov_preview_button.toggled.connect(self._toggle_overlay_preview)
+        buttons = QHBoxLayout()
+        buttons.addWidget(self.ov_preview_button)
+        buttons.addWidget(sample)
+        buttons.addStretch(1)
+        grid.addLayout(buttons, row + 2, 0, 1, 3)
+        self.ov_preview_box = QFrame()
+        self.ov_preview_box.setVisible(False)
+        self.ov_preview_layout = QVBoxLayout(self.ov_preview_box)
+        self.ov_preview_layout.setContentsMargins(0, 0, 0, 0)
+        self.ov_preview = None  # QWebEngineView créé à la demande (navigateur intégré)
+        grid.addWidget(self.ov_preview_box, row + 4, 0, 1, 3)
+        grid.addWidget(
+            _muted(
+                "Tout change en direct dans OBS / Streamlabs, sans actualiser la source. "
+                "« Afficher un exemple » montre une réponse pendant 8 s pour voir où le texte "
+                "s'affiche. Garde la source assez grande pour le robot ET ses sous-titres "
+                "(600 × 600 en général, plus large si les sous-titres sont à côté)."
+            ),
+            row + 3,
+            0,
+            1,
+            3,
+        )
+        return panel
+
+    def _toggle_overlay_preview(self, on: bool) -> None:
+        """Aperçu en direct : la vraie page OBS, comme une source 600 × 600 réduite."""
+        self.ov_preview_box.setVisible(on)
+        url = self.overlay_url.text()
+        if not on:
+            if self.ov_preview is not None:
+                self.ov_preview.setUrl("about:blank")  # type: ignore[attr-defined]
+            return
+        if not url.startswith("http"):
+            self.ov_preview_button.setChecked(False)
+            self.ov_preview_box.setVisible(False)
+            self._emit("overlay_notice", "Active d'abord la page OBS (case au-dessus).")
+            return
+        if self.ov_preview is None:
+            try:
+                from PySide6.QtCore import QUrl
+                from PySide6.QtGui import QColor
+                from PySide6.QtWebEngineWidgets import QWebEngineView
+            except ImportError:
+                self.ov_preview_button.setChecked(False)
+                self._emit("overlay_notice", "Aperçu indisponible sur ce PC : utilise « Aperçu ».")
+                return
+            view = QWebEngineView()
+            view.page().setBackgroundColor(QColor("#151a26"))  # comme une scène de jeu sombre
+            view.setFixedSize(420, 420)
+            view.setZoomFactor(0.7)  # source 600 × 600 vue à 70 %
+            self.ov_preview = view
+            self._preview_url = QUrl
+            self.ov_preview_layout.addWidget(view, 0, Qt.AlignmentFlag.AlignHCenter)
+            self.ov_preview_layout.addWidget(
+                _muted("Aperçu d'une source 600 × 600 (réduite), sur un fond de jeu sombre.")
+            )
+        self.ov_preview.setUrl(self._preview_url(url))  # type: ignore[attr-defined]
+
+    def load_overlay_style(self, stream) -> None:  # type: ignore[no-untyped-def]
+        self._loading = True
+        try:
+            for key in ("ov_size", "ov_width", "ov_font", "ov_alpha"):
+                slider = self.ov_widgets[key]
+                slider.setValue(int(getattr(stream, key)))  # type: ignore[attr-defined]
+            self.ov_side.setCurrentIndex(max(0, self.ov_side.findData(stream.ov_side)))
+            self.ov_subtitles.setChecked(stream.ov_subtitles)
+            self.ov_roam.setChecked(stream.ov_roam)
+        finally:
+            self._loading = False
+
     def _chat_panel(self) -> QWidget:
         """Mode Stream : il lit le chat Twitch et répond à voix haute."""
         from alicia.stream.chat import TRIGGERS
@@ -1921,6 +2044,7 @@ class SettingsPage(QWidget):
         finally:
             self._loading = False
         self.show_channel(stream.twitch_channel, valid=True)
+        self.load_overlay_style(stream)
 
     def show_channel(self, channel: str, valid: bool = True) -> None:
         self.twitch_input.setText(channel or self.twitch_input.text())

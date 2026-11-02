@@ -240,6 +240,14 @@ class StreamSettings:
     chat_ignored: str = ""  # pseudos ignorés, séparés par des virgules
     chat_output: str = ""  # sortie de ses réponses au chat ("" = la même que sa voix)
     overlay_voice: bool = False  # sa voix jouée aussi par la page OBS (sa propre piste audio)
+    # Overlay OBS / Streamlabs (réglables dans Réglages → Stream, appliqués en direct)
+    ov_size: int = 260  # taille du robot (px)
+    ov_side: str = "bottom"  # sous-titres : bottom | top | left | right
+    ov_width: int = 520  # largeur max des sous-titres (px)
+    ov_font: int = 18  # taille du texte (px)
+    ov_alpha: int = 90  # opacité du fond des sous-titres (%)
+    ov_subtitles: bool = True
+    ov_roam: bool = False  # il se promène dans toute la source
 
 
 @dataclass(frozen=True)
@@ -378,6 +386,25 @@ def _choice(section: dict[str, Any], key: str, default: str, allowed: tuple[str,
             f"Réglage « {key} » invalide : « {value} » (choix : {', '.join(allowed)})."
         )
     return value
+
+
+def _overlay_style(stream: dict) -> dict:  # type: ignore[type-arg]
+    def number(key: str, default: int, low: int, high: int) -> int:
+        try:
+            return max(low, min(high, int(stream.get(key, default))))
+        except (TypeError, ValueError):
+            return default
+
+    side = str(stream.get("ov_side", "bottom"))
+    return {
+        "ov_size": number("ov_size", 260, 80, 900),
+        "ov_side": side if side in ("bottom", "top", "left", "right") else "bottom",
+        "ov_width": number("ov_width", 520, 160, 1600),
+        "ov_font": number("ov_font", 18, 10, 60),
+        "ov_alpha": number("ov_alpha", 90, 0, 100),
+        "ov_subtitles": bool(stream.get("ov_subtitles", True)),
+        "ov_roam": bool(stream.get("ov_roam", False)),
+    }
 
 
 def _fx(voice: dict) -> dict:  # type: ignore[type-arg]
@@ -540,6 +567,7 @@ def load_settings(
             chat_ignored=str(_section(data, "stream").get("chat_ignored", ""))[:500],
             chat_output=str(_section(data, "stream").get("chat_output", "") or ""),
             overlay_voice=bool(_section(data, "stream").get("overlay_voice", False)),
+            **_overlay_style(_section(data, "stream")),
         ),
         duo=DuoSettings(
             enabled=bool(_section(data, "duo").get("enabled", False)),
