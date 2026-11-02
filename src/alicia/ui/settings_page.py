@@ -1394,6 +1394,7 @@ class SettingsPage(QWidget):
             4,
         )
         self.design_preset = QComboBox()
+        self.design_preset.setProperty("keep_names", True)  # « ALICIA — … » reste ALICIA
         for label in PRESETS:
             self.design_preset.addItem(label, label)
         self.design_name = QLineEdit()

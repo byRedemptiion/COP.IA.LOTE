@@ -222,3 +222,21 @@ def test_old_effect_setting_becomes_slider_values(tmp_path):
     }
     assert _fx({"voice_effect": "enfant", "fx_pitch": 9, "fx_metal": "x"})["fx_pitch"] == 6.0
     assert _fx({})["fx_pitch"] == 0.0
+
+
+def test_presets_keep_both_names_with_viirus(qt_app, monkeypatch):
+    from PySide6.QtWidgets import QComboBox, QWidget
+
+    from alicia.core import persona
+    from alicia.ui.naming import rename_widgets
+
+    monkeypatch.setattr("alicia.ui.naming.current", lambda: persona.PERSONAS["veris"])
+    root = QWidget()
+    kept, renamed = QComboBox(root), QComboBox(root)
+    kept.setProperty("keep_names", True)
+    for box in (kept, renamed):
+        box.addItem("ALICIA — robote pétillante")
+    rename_widgets(root)
+    assert kept.itemText(0).startswith("ALICIA")
+    assert renamed.itemText(0).startswith("VIIRUS")
+    root.deleteLater()
