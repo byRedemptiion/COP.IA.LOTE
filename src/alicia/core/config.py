@@ -252,6 +252,10 @@ class StreamSettings:
     ov_roam: bool = False  # il se promène dans toute la source
     chat_regulars: bool = True  # se souvenir des habitués du chat
     chat_reactions: bool = True  # petites réactions sur l'overlay aux messages du chat
+    twitch_events: bool = False  # remercier les follows, subs, bits et raids
+    twitch_client_id: str = ""  # identifiant de TON application Twitch (public)
+    twitch_access: Secret = field(default_factory=lambda: Secret(None))  # .env
+    twitch_refresh: Secret = field(default_factory=lambda: Secret(None))  # .env
     clip_app: str = ""  # « clip ça » : "" (coupé) | obs | streamlabs
     clip_auto: bool = False  # le Copilote clippe tout seul les moments marquants
     clip_token: Secret = field(default_factory=lambda: Secret(None))  # .env : CLIP_TOKEN
@@ -580,6 +584,10 @@ def load_settings(
             else "",
             clip_auto=bool(_section(data, "stream").get("clip_auto", False)),
             chat_regulars=bool(_section(data, "stream").get("chat_regulars", True)),
+            twitch_events=bool(_section(data, "stream").get("twitch_events", False)),
+            twitch_client_id=str(_section(data, "stream").get("twitch_client_id", "")).strip()[:64],
+            twitch_access=Secret(env.get("TWITCH_ACCESS_TOKEN")),
+            twitch_refresh=Secret(env.get("TWITCH_REFRESH_TOKEN")),
             chat_reactions=bool(_section(data, "stream").get("chat_reactions", True)),
             clip_token=Secret(env.get("CLIP_TOKEN")),
         ),

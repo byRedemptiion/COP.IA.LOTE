@@ -632,6 +632,7 @@ class SettingsPage(QWidget):
         self._tab_layouts["stream"].addWidget(stream)
         self._tab_layouts["stream"].addWidget(self._overlay_style_panel())
         self._tab_layouts["stream"].addWidget(self._chat_panel())
+        self._tab_layouts["stream"].addWidget(self._twitch_events_panel())
         self._tab_layouts["stream"].addWidget(self._clip_panel())
 
         # --- Duo -----------------------------------------------------------------------------------
@@ -1999,6 +2000,46 @@ class SettingsPage(QWidget):
             else:
                 value.setText(str(count))
 
+    def _twitch_events_panel(self) -> QWidget:
+        """Événements Twitch : follows, subs, bits, raids → remerciements à voix haute."""
+        panel, grid = _panel()
+        grid.addWidget(_title("🎉  ÉVÉNEMENTS TWITCH (FOLLOWS, SUBS, BITS, RAIDS)"), 0, 0, 1, 3)
+        self.twitch_client = QLineEdit()
+        self.twitch_client.setPlaceholderText("Client ID de ton application Twitch")
+        self.twitch_client.editingFinished.connect(
+            lambda: self._emit("twitch_client_id", self.twitch_client.text().strip())
+        )
+        create = QPushButton("Créer l'application…")
+        create.setObjectName("ghost")
+        create.clicked.connect(lambda: self._emit("twitch_dev_open", True))
+        grid.addWidget(QLabel("Client ID"), 1, 0)
+        grid.addWidget(self.twitch_client, 1, 1)
+        grid.addWidget(create, 1, 2)
+        connect = QPushButton("🔗  Connecter mon compte")
+        connect.clicked.connect(lambda: self._emit("twitch_connect", True))
+        grid.addWidget(connect, 2, 0)
+        self.twitch_code = QLabel("")
+        self.twitch_code.setObjectName("sectionTitle")
+        self.twitch_code.setTextInteractionFlags(Qt.TextInteractionFlag.TextSelectableByMouse)
+        grid.addWidget(self.twitch_code, 2, 1, 1, 2)
+        self.twitch_events_box = QCheckBox("Remercier à voix haute (et réagir sur l'overlay)")
+        self.twitch_events_box.toggled.connect(lambda on: self._emit("twitch_events", on))
+        grid.addWidget(self.twitch_events_box, 3, 0, 1, 2)
+        self.twitch_events_state = _muted("Événements : coupés")
+        grid.addWidget(self.twitch_events_state, 3, 2)
+        steps = _muted(
+            "<b>Une seule fois</b> : 1) « Créer l'application… » ouvre dev.twitch.tv (connecte-"
+            "toi) → « Register Your Application » : nom « COPIALOTE-" + "ton pseudo », OAuth "
+            "Redirect URL <b>http://localhost</b>, catégorie <b>Application Integration</b>, "
+            "type de client <b>Public</b> → Créer. 2) Ouvre l'application, copie le "
+            "<b>Client ID</b> ici. 3) « Connecter mon compte » : un code s'affiche, ta page "
+            "Twitch s'ouvre, valide le code. C'est fini.<br>Lecture seule : il n'écrit rien "
+            "sur Twitch. Les remerciements sont des phrases toutes faites (aucun appel à l'IA)."
+        )
+        steps.setTextFormat(Qt.TextFormat.RichText)
+        grid.addWidget(steps, 4, 0, 1, 3)
+        return panel
+
     def _clip_panel(self) -> QWidget:
         """« VIIRUS, clip ça » : la relecture instantanée d'OBS ou de Streamlabs."""
         panel, grid = _panel()
@@ -2165,6 +2206,10 @@ class SettingsPage(QWidget):
             self.ov_side.setCurrentIndex(max(0, self.ov_side.findData(stream.ov_side)))
             self.clip_app.setCurrentIndex(max(0, self.clip_app.findData(stream.clip_app)))
             self.clip_auto.setChecked(stream.clip_auto)
+            self.twitch_client.setText(stream.twitch_client_id)
+            self.twitch_events_box.setChecked(stream.twitch_events)
+            if stream.twitch_access and not self.twitch_code.text():
+                self.twitch_code.setText("✓ compte connecté")
             self.clip_state.setText("✓ accès enregistré" if stream.clip_token else "")
             self.ov_subtitles.setChecked(stream.ov_subtitles)
             self.ov_roam.setChecked(stream.ov_roam)

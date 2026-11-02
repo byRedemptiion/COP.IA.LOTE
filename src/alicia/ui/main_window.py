@@ -218,6 +218,8 @@ class MainWindow(QMainWindow):
         self.stream_mode = StreamMode(self)
         if self.services.settings.stream.chat_mode:
             self.set_stream_mode(True, save=False)
+        if self.services.settings.stream.twitch_events and not self.services.demo:
+            self.set_twitch_events(True, save=False)
         from alicia.core.duo_presence import PING_S
 
         self._duo_ping_timer = QTimer(self)
@@ -657,6 +659,73 @@ class MainWindow(QMainWindow):
         gesture, emoji = found
         self.overlay.publish("gesture", name=gesture)
         self.overlay.publish("react", emoji=emoji)
+
+    def set_twitch_events(self, on: bool, save: bool = True) -> None:
+        from dataclasses import replace
+
+        problem = self.stream_mode.start_events() if on else None
+        if not on:
+            self.stream_mode.stop_events()
+        enabled = bool(on) and problem is None
+        stream = replace(self.services.settings.stream, twitch_events=enabled)
+        self.services.settings = replace(self.services.settings, stream=stream)
+        if save:
+            self._save("stream", "twitch_events", enabled)
+        box = getattr(self.settings_page, "twitch_events_box", None)
+        if box is not None:
+            box.blockSignals(True)
+            box.setChecked(enabled)
+            box.blockSignals(False)
+        if problem:
+            self._notify("⚠ " + problem)
+
+    def save_twitch_tokens(self, access: str, refresh: str) -> None:
+        """Jetons Twitch dans le .env (jamais journalisés)."""
+        from dataclasses import replace
+
+        from alicia.core.config import Secret
+        from alicia.core.user_config import set_env
+
+        try:
+            set_env("TWITCH_ACCESS_TOKEN", access)
+            set_env("TWITCH_REFRESH_TOKEN", refresh)
+        except (OSError, ValueError) as exc:
+            log.error("Jetons Twitch non enregistrés : %r", exc)
+        stream = replace(
+            self.services.settings.stream,
+            twitch_access=Secret(access),
+            twitch_refresh=Secret(refresh),
+        )
+        self.services.settings = replace(self.services.settings, stream=stream)
+
+    def connect_twitch(self) -> None:
+        """Connexion du compte Twitch par code (device code flow), sans mot de passe ici."""
+        from alicia.stream.twitch_events import TwitchError, start_device_flow, wait_for_tokens
+
+        client_id = self.services.settings.stream.twitch_client_id
+        page = self.settings_page
+        if not client_id:
+            page.twitch_code.setText("⚠ Colle d'abord le Client ID de ton application.")
+            return
+        page.twitch_code.setText("Demande d'un code à Twitch…")
+
+        def got_code(code) -> None:  # type: ignore[no-untyped-def]
+            page.twitch_code.setText(f"Code : {code.user_code}  (valide-le sur la page Twitch)")
+            QDesktopServices.openUrl(QUrl(code.verification_uri))
+            self._background(lambda: wait_for_tokens(client_id, code), connected, failed)
+
+        def connected(tokens) -> None:  # type: ignore[no-untyped-def]
+            self.save_twitch_tokens(tokens.access, tokens.refresh)
+            page.twitch_code.setText("✓ compte connecté")
+            log.info("Twitch : compte connecté (jetons masqués)")
+            self.set_twitch_events(True)
+
+        def failed(exc: Exception) -> None:
+            message = str(exc) if isinstance(exc, TwitchError) else "Twitch ne répond pas."
+            log.warning("Connexion Twitch : %r", exc)
+            page.twitch_code.setText("⚠ " + message)
+
+        self._background(lambda: start_device_flow(client_id), got_code, failed)
 
     def save_clip_token(self, token: str) -> None:
         """Mot de passe OBS / jeton Streamlabs, rangé dans le .env (jamais journalisé)."""
@@ -1305,6 +1374,7 @@ class MainWindow(QMainWindow):
             "clip_auto",
             "chat_regulars",
             "chat_reactions",
+            "twitch_client_id",
         ):
             from dataclasses import replace
 
@@ -1328,6 +1398,12 @@ class MainWindow(QMainWindow):
             self.stream_mode.configure()
             if key.startswith("ov_") and self.overlay is not None:
                 self.overlay.publish("style", **self._overlay_style())  # en direct
+        elif key == "twitch_events":
+            self.set_twitch_events(bool(value))
+        elif key == "twitch_connect":
+            self.connect_twitch()
+        elif key == "twitch_dev_open":
+            QDesktopServices.openUrl(QUrl("https://dev.twitch.tv/console/apps/create"))
         elif key == "chat_regulars_clear":
             self.stream_mode.viewers.clear()
             self._notify("Habitués du chat oubliés.")
@@ -3556,6 +3632,7 @@ class MainWindow(QMainWindow):
     def closeEvent(self, event) -> None:  # type: ignore[no-untyped-def]  # noqa: N802
         if getattr(self, "stream_mode", None) is not None:
             self.stream_mode.stop()
+            self.stream_mode.stop_events()
         if self.duo_link is not None:
             self._duo_bye(wait=1.5)
             self.duo_link.stop()

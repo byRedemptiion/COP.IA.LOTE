@@ -266,3 +266,84 @@ def test_chat_reactions_on_overlay(qt_app, tmp_path, monkeypatch):
         assert sent == [("gesture", {"name": "wiggle"}), ("react", {"emoji": "😂"})]
     finally:
         window.close()
+
+
+# --- 10. événements Twitch -------------------------------------------------------------------
+def test_twitch_notifications_become_thanks():
+    from alicia.stream.twitch_events import parse_notification, thank_line
+
+    follow = parse_notification("channel.follow", {"user_name": "Nova_Jagger"})
+    assert follow.kind == "follow" and "Nova Jagger" in thank_line(follow)
+    raid = parse_notification("channel.raid", {"from_broadcaster_user_name": "Bob", "viewers": 42})
+    assert raid.kind == "raid" and "42" in thank_line(raid)
+    gift = parse_notification(
+        "channel.subscription.gift", {"user_name": "X", "total": 5, "is_anonymous": True}
+    )
+    assert gift.user == "Un anonyme" and "5" in thank_line(gift)
+    assert parse_notification("channel.subscribe", {"user_name": "A", "is_gift": True}) is None
+    resub = parse_notification(
+        "channel.subscription.message",
+        {"user_name": "Amy", "cumulative_months": 12, "message": {"text": "dis bonjour"}},
+    )
+    assert resub.amount == 12 and resub.message == "dis bonjour"
+
+
+def test_twitch_device_flow(monkeypatch):
+    import httpx
+
+    from alicia.stream import twitch_events
+
+    class Reply:
+        def __init__(self, status, data):
+            self.status_code, self._data, self.content = status, data, b"x"
+
+        def json(self):
+            return self._data
+
+    answers = [
+        Reply(400, {"message": "authorization_pending"}),
+        Reply(200, {"access_token": "acc", "refresh_token": "ref"}),
+    ]
+
+    def post(url, data, timeout):
+        if url.endswith("/device"):
+            assert data["scopes"] == twitch_events.SCOPES
+            return Reply(
+                200,
+                {
+                    "device_code": "d",
+                    "user_code": "ABCD-EFGH",
+                    "verification_uri": "https://www.twitch.tv/activate?x",
+                    "interval": 0,
+                    "expires_in": 60,
+                },
+            )
+        return answers.pop(0)
+
+    monkeypatch.setattr(httpx, "post", post)
+    code = twitch_events.start_device_flow("client")
+    assert code.user_code == "ABCD-EFGH"
+    tokens = twitch_events.wait_for_tokens("client", code)
+    assert (tokens.access, tokens.refresh) == ("acc", "ref")
+
+
+def test_twitch_event_is_thanked_out_loud(qt_app, tmp_path, monkeypatch):
+    from alicia.stream.twitch_events import TwitchEvent
+    from alicia.ui.main_window import MainWindow
+
+    monkeypatch.chdir(tmp_path)
+    window = MainWindow(
+        build_services(load_settings(environ={"ALICE_AI_PROVIDER": "fake"}), demo=True)
+    )
+    said = []
+    if window.services.speaker is not None:
+        monkeypatch.setattr(
+            window.services.speaker, "speak", lambda text, *a, **k: said.append(text) or True
+        )
+    try:
+        assert window.stream_mode.start_events() is not None  # pas de compte : il le dit
+        window.stream_mode._event_received(TwitchEvent("follow", "Bob"))
+        window.stream_mode.tick()
+        assert said and "Bob" in said[0]
+    finally:
+        window.close()

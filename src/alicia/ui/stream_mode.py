@@ -25,6 +25,9 @@ log = logging.getLogger("alicia.stream")
 class _Bridge(QObject):
     message = Signal(object)  # ChatMessage, depuis le fil du chat
     status = Signal(str)
+    event = Signal(object)  # TwitchEvent (follow, sub, raid…), depuis le fil des événements
+    event_status = Signal(str)
+    tokens = Signal(object)  # jetons Twitch rafraîchis : à enregistrer
 
 
 class StreamMode(QObject):
@@ -41,8 +44,15 @@ class StreamMode(QObject):
         self.bridge = _Bridge()
         self.bridge.message.connect(self._received)
         self.bridge.status.connect(self._set_status)
+        self.bridge.event.connect(self._event_received)
+        self.bridge.event_status.connect(self._set_event_status)
+        self.bridge.tokens.connect(self._save_tokens)
         self.timer = QTimer(self)
         self.timer.timeout.connect(self.tick)
+        self.events = None  # TwitchEvents : follows, subs, raids… (compte connecté)
+        from collections import deque
+
+        self.event_queue: deque = deque(maxlen=10)  # type: ignore[type-arg]
 
     @property
     def enabled(self) -> bool:
@@ -73,12 +83,84 @@ class StreamMode(QObject):
         log.info("Mode Stream : lecture du chat de #%s", channel)
         return None
 
+    # --- événements Twitch (follows, subs, raids, bits) -------------------------------------
+
+    def start_events(self) -> str | None:
+        from alicia.stream.twitch_events import Tokens, TwitchEvents
+
+        stream = self.window.services.settings.stream
+        access, refresh = stream.twitch_access.get(), stream.twitch_refresh.get()
+        if not stream.twitch_client_id or not access:
+            return "Connecte d'abord ton compte Twitch (Réglages → Stream → Événements)."
+        self.stop_events()
+        self.events = TwitchEvents(
+            stream.twitch_client_id,
+            Tokens(access, refresh or ""),
+            self.bridge.event.emit,
+            self.bridge.tokens.emit,
+        )
+        self.events.on_status = self.bridge.event_status.emit
+        self.events.start()
+        self.timer.start(1000)
+        self._set_event_status("connexion…")
+        return None
+
+    def stop_events(self) -> None:
+        if self.events is not None:
+            self.events.stop()
+        self.events = None
+        self.event_queue.clear()
+        self._set_event_status("coupés")
+        if self.chat is None:
+            self.timer.stop()
+
+    def _set_event_status(self, text: str) -> None:
+        label = getattr(self.window.settings_page, "twitch_events_state", None)
+        if label is not None:
+            label.setText(f"Événements : {text}")
+
+    def _save_tokens(self, tokens) -> None:  # type: ignore[no-untyped-def]
+        self.window.save_twitch_tokens(tokens.access, tokens.refresh)
+
+    def _event_received(self, event) -> None:  # type: ignore[no-untyped-def]
+        from alicia.stream.twitch_events import GESTURES
+
+        gesture, emoji = GESTURES.get(event.kind, ("nod", "💜"))
+        overlay = self.window.overlay
+        if overlay is not None:  # réaction immédiate sur l'overlay
+            overlay.publish("gesture", name=gesture)
+            overlay.publish("react", emoji=emoji)
+        self.event_queue.append(event)
+
+    def _thank(self) -> bool:
+        """Dit le remerciement le plus ancien (prioritaire sur le chat)."""
+        if not self.event_queue:
+            return False
+        from alicia.stream.twitch_events import thank_line
+
+        event = self.event_queue.popleft()
+        text = thank_line(event)
+        window = self.window
+        icons = {"follow": "💜", "sub": "⭐", "resub": "⭐", "gift": "🎁", "cheer": "💎"}
+        window.asked_label.setText(f"{icons.get(event.kind, '🚀')} TWITCH  ›  {event.user}")
+        window.answer.setPlainText(text)
+        if window._bubble_active():
+            window.bubble.ask(f"{icons.get(event.kind, '🚀')} {event.user}")
+        window._core("speaking")
+        speaker, device = window.services.speaker, window.services.settings.stream.chat_output
+        spoken = False
+        if window.voice_box.isChecked() and speaker is not None:
+            spoken = speaker.speak(text, device=device or None)
+        window._bubble_finish(text, spoken)
+        return True
+
     def stop(self) -> None:
         if self.chat is not None:
             self.chat.stop()
             log.info("Mode Stream : coupé")
         self.chat = None
-        self.timer.stop()
+        if self.events is None:
+            self.timer.stop()
         self.gate.queue.clear()
         self._set_status("coupé")
 
@@ -109,7 +191,9 @@ class StreamMode(QObject):
         return None
 
     def tick(self) -> None:
-        if self.chat is None or self._busy():
+        if self._busy():
+            return
+        if self._thank() or self.chat is None:
             return
         message = self.gate.next()
         if message is None:

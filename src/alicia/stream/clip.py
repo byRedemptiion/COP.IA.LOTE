@@ -17,11 +17,10 @@ import base64
 import hashlib
 import json
 import logging
-import os
 import re
-import socket
-import struct
 import unicodedata
+
+from alicia.stream.ws import WebSocket as _WebSocket
 
 log = logging.getLogger("alicia.stream")
 
@@ -30,77 +29,6 @@ PORTS = {"obs": 4455, "streamlabs": 59650}
 
 class ClipError(Exception):
     """Message lisible pour l'interface."""
-
-
-class _WebSocket:
-    """Client WebSocket minimal (texte seulement), suffisant pour OBS et Streamlabs."""
-
-    def __init__(self, host: str, port: int, path: str = "/", timeout: float = 5.0) -> None:
-        self.sock = socket.create_connection((host, port), timeout=timeout)
-        key = base64.b64encode(os.urandom(16)).decode()
-        request = (
-            f"GET {path} HTTP/1.1\r\nHost: {host}:{port}\r\nUpgrade: websocket\r\n"
-            f"Connection: Upgrade\r\nSec-WebSocket-Key: {key}\r\nSec-WebSocket-Version: 13\r\n"
-            "\r\n"
-        )
-        self.sock.sendall(request.encode())
-        head = b""
-        while b"\r\n\r\n" not in head:
-            chunk = self.sock.recv(1024)
-            if not chunk:
-                raise ConnectionError("connexion fermée pendant la poignée de main")
-            head += chunk
-        header, _, self.buffer = head.partition(b"\r\n\r\n")
-        if b" 101 " not in header.split(b"\r\n", 1)[0]:
-            raise ConnectionError(header.split(b"\r\n", 1)[0].decode(errors="replace"))
-
-    def _read(self, n: int) -> bytes:
-        while len(self.buffer) < n:
-            chunk = self.sock.recv(65536)
-            if not chunk:
-                raise ConnectionError("connexion fermée")
-            self.buffer += chunk
-        data, self.buffer = self.buffer[:n], self.buffer[n:]
-        return data
-
-    def send(self, text: str) -> None:
-        payload = text.encode()
-        mask = os.urandom(4)
-        size = len(payload)
-        if size < 126:
-            header = struct.pack("!BB", 0x81, 0x80 | size)
-        elif size < 65536:
-            header = struct.pack("!BBH", 0x81, 0x80 | 126, size)
-        else:
-            header = struct.pack("!BBQ", 0x81, 0x80 | 127, size)
-        masked = bytes(b ^ mask[i % 4] for i, b in enumerate(payload))
-        self.sock.sendall(header + mask + masked)
-
-    def recv(self) -> str:
-        while True:
-            first, second = self._read(2)
-            opcode, size = first & 0x0F, second & 0x7F
-            if size == 126:
-                (size,) = struct.unpack("!H", self._read(2))
-            elif size == 127:
-                (size,) = struct.unpack("!Q", self._read(8))
-            mask = self._read(4) if second & 0x80 else b""
-            data = self._read(size)
-            if mask:
-                data = bytes(b ^ mask[i % 4] for i, b in enumerate(data))
-            if opcode == 0x8:
-                raise ConnectionError("fermé par le logiciel de stream")
-            if opcode == 0x9:  # ping → pong
-                self.sock.sendall(struct.pack("!BB", 0x8A, 0x80 | len(data)) + b"\0" * 4 + data)
-                continue
-            if opcode in (0x1, 0x0):
-                return data.decode("utf-8", "replace")
-
-    def close(self) -> None:
-        try:
-            self.sock.close()
-        except OSError:
-            pass
 
 
 def _obs_clip(port: int, password: str) -> None:
