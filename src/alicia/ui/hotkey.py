@@ -192,7 +192,7 @@ class GlobalHotkey(QObject):
             error = ctypes.get_last_error()
             message = (
                 f"Le raccourci {self.text} est déjà utilisé par un autre programme "
-                f"(code {error}). Change-le dans l'onglet RACCOURCIS d'ALICIA."
+                f"(code {error}). Change-le dans l'onglet RACCOURCIS de COP'IA'LOTE."
             )
             log.error(message)
             self.failed.emit(message)

@@ -431,7 +431,7 @@ class SettingsPage(QWidget):
         grid.addWidget(self.memory_interval, 2, 1, 1, 2)
         grid.addWidget(QLabel("Gardées pendant"), 3, 0)
         grid.addWidget(self.memory_hours, 3, 1, 1, 2)
-        self.memory_clear_exit = QCheckBox("Tout effacer à la fermeture d'ALICIA")
+        self.memory_clear_exit = QCheckBox("Tout effacer à la fermeture de COP'IA'LOTE")
         grid.addWidget(QLabel("Place maximale"), 4, 0)
         grid.addWidget(self.memory_size, 4, 1, 1, 2)
         grid.addWidget(QLabel("Emplacement"), 5, 0)

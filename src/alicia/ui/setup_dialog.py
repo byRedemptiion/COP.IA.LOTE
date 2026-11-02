@@ -98,7 +98,7 @@ class SetupDialog(QDialog):
             self._has_keys = {provider: bool(has_key)}
         for key, slots in self.saved_keys.items():
             self._has_keys[key] = bool(slots)
-        self.setWindowTitle("ALICIA — choisis ton IA")
+        self.setWindowTitle("COP'IA'LOTE — choisis ton IA")
         self.setStyleSheet(STYLESHEET + "QDialog { background: " + DEEP + "; }")
         self.setMinimumWidth(600)
         self.choice: tuple[str, str] | None = None
@@ -181,7 +181,7 @@ class SetupDialog(QDialog):
         obox = QVBoxLayout(self.ollama_box)
         obox.setContentsMargins(16, 12, 16, 12)
         ollama_help = QLabel(
-            "Installe Ollama : ALICIA le démarre toute seule et télécharge son modèle d'images "
+            "Installe Ollama : COP'IA'LOTE le démarre tout seul et télécharge son modèle d'images "
             "(environ 6 Go) au premier usage. Gratuit et hors ligne, mais il faut une bonne "
             "carte graphique, et c'est plus lent et moins précis (pas de recherche web)."
         )

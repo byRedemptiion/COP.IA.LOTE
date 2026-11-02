@@ -51,7 +51,7 @@ def test_bubble_menu_structure_and_actions(qt_app, tmp_path, monkeypatch):
         assert top[3] == "—" and top[4] == "💡  Mode Copilote"
         assert top[5:8] == ["👁  Vision", "🔊  Voix", "🎥  Stream"]
         assert top[9:12] == ["✏  Mode édition", "⚙  Réglages", "↻  Mettre à jour COP'IA'LOTE"]
-        assert top[-1] == "✕  Quitter ALICIA"
+        assert top[-1] == "✕  Quitter COP'IA'LOTE"
         flat = json.dumps(texts, ensure_ascii=False)
         assert "Choisir l'IA" not in flat and "Replacer en haut" not in flat
         for kept in (

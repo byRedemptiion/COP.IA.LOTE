@@ -1,4 +1,4 @@
-# Architecture d'Alicia (V0.1)
+# Architecture de COP'IA'LOTE (base V0.1)
 
 ## Flux d'une analyse
 

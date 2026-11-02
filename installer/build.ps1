@@ -1,4 +1,4 @@
-﻿# Construit dist\ALICIA-Setup.exe (lancé par GitHub Actions sur Windows, ou à la main).
+﻿# Construit dist\COPIALOTE-Setup.exe (lancé par GitHub Actions sur Windows, ou à la main).
 # Prérequis : Inno Setup 6 (choco install innosetup). Télécharge uv pour l'embarquer.
 $ErrorActionPreference = "Stop"
 Set-Location $PSScriptRoot
@@ -31,4 +31,4 @@ if ($code -ne 0) {
     $output | Select-Object -Last 25 | ForEach-Object { Write-Host "::error title=ISCC::$_" }
     exit $code
 }
-Write-Host "Installateur prêt : dist\ALICIA-Setup.exe ($appVersion)"
+Write-Host "Installateur prêt : dist\COPIALOTE-Setup.exe ($appVersion)"

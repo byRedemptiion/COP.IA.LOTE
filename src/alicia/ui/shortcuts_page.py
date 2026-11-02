@@ -197,8 +197,8 @@ class ShortcutsPage(QWidget):
             "Clique sur une touche puis appuie sur la nouvelle : touches F1 à F24, lettres, "
             "chiffres, pavé numérique, Inser, Début, Fin, Pause, <, ², ù…, avec ou sans Ctrl / Alt / Maj, "
             "ou un <b>bouton latéral de la souris</b> (pratique pour parler en jouant).<br>"
-            "Une touche du clavier est réservée à ALICIA (le jeu ne la reçoit plus tant qu'elle "
-            "est ouverte) ; un bouton de souris reste aussi transmis au jeu."
+            "Une touche du clavier est réservée à COP'IA'LOTE (le jeu ne la reçoit plus tant qu'il "
+            "est ouvert) ; un bouton de souris reste aussi transmis au jeu."
         )
         note.setObjectName("muted")
         note.setWordWrap(True)

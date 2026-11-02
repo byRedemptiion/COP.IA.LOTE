@@ -105,7 +105,7 @@ class Updater:
     def _client(self) -> httpx.Client:
         headers = {
             "Accept": "application/vnd.github+json",
-            "User-Agent": "ALICIA-copilot-updater",
+            "User-Agent": "COPIALOTE-updater",
             "X-GitHub-Api-Version": "2022-11-28",
         }
         if self.token:

@@ -1,5 +1,5 @@
 ﻿# Installation de COP'IA'LOTE sous Windows : uv, Python 3.12, dépendances, modèles vocaux.
-# -Installer : lancé par ALICIA-Setup.exe (sans question : l'IA est choisie dans l'installateur).
+# -Installer : lancé par COPIALOTE-Setup.exe (sans question : l'IA est choisie dans l'installateur).
 # -Update    : mise à jour des dépendances seulement (lancé par Lancer_Alicia.bat).
 # Sans option : installation depuis le dossier source (Installer_Alicia.bat).
 # Ne modifie aucune politique PowerShell globale.
@@ -63,17 +63,17 @@ try {
     }
 
     if (-not $Installer) {
-        Step "Raccourci ALICIA sur le Bureau"
+        Step "Raccourci COP'IA'LOTE sur le Bureau"
         try {
             $desktop = [Environment]::GetFolderPath("Desktop")
             $shell = New-Object -ComObject WScript.Shell
-            $link = $shell.CreateShortcut((Join-Path $desktop "ALICIA.lnk"))
+            $link = $shell.CreateShortcut((Join-Path $desktop "COP'IA'LOTE.lnk"))
             $link.TargetPath = Join-Path $root ".venv\Scripts\alicia-gui.exe"
             $link.WorkingDirectory = $root
             $link.IconLocation = (Join-Path $root "src\alicia\assets\alicia.ico") + ",0"
-            $link.Description = "ALICIA, copilote de jeu"
+            $link.Description = "COP'IA'LOTE, copilote de jeu"
             $link.Save()
-            Write-Host "Raccourci ALICIA créé sur le Bureau."
+            Write-Host "Raccourci COP'IA'LOTE créé sur le Bureau."
         } catch {
             Write-Host "Raccourci non créé : $($_.Exception.Message)" -ForegroundColor Yellow
         }

@@ -1,12 +1,12 @@
-﻿; Installateur ALICIA (Inno Setup 6) — construit par GitHub Actions : installer/build.ps1
+﻿; Installateur COP'IA'LOTE (Inno Setup 6) — construit par GitHub Actions : installer/build.ps1
 ;
-; Installe ALICIA pour l'utilisateur courant (sans droits administrateur) dans
+; Installe COP'IA'LOTE pour l'utilisateur courant (sans droits administrateur) dans
 ; %LOCALAPPDATA%\Programs\ALICIA, demande quelle IA utiliser (avec un bouton vers la page
 ; de clé Gemini), puis installe Python et les composants avec uv (fourni, bin\uv.exe).
 ; Les clés et réglages restent dans %APPDATA%\Alicia : une désinstallation ne les efface pas.
 
 #ifndef AppVersion
-  #define AppVersion "0.11.2"
+  #define AppVersion "0.11.3"
 #endif
 
 [Setup]
@@ -15,13 +15,13 @@ AppName=COP'IA'LOTE
 AppVersion={#AppVersion}
 AppVerName=COP'IA'LOTE {#AppVersion}
 AppPublisher=byRedemptiion
-AppComments=Copilote de jeu : elle regarde ton écran, t'écoute et te conseille, sans jamais jouer à ta place.
+AppComments=Copilote de jeu (VIIRUS ou ALICIA) : il regarde ton écran, t'écoute et te conseille, sans jamais jouer à ta place.
 DefaultDirName={localappdata}\Programs\ALICIA
 DisableDirPage=yes
 DisableProgramGroupPage=yes
 PrivilegesRequired=lowest
 OutputDir=..\dist
-OutputBaseFilename=ALICIA-Setup
+OutputBaseFilename=COPIALOTE-Setup
 SetupIconFile=..\src\alicia\assets\alicia.ico
 UninstallDisplayIcon={app}\src\alicia\assets\alicia.ico
 UninstallDisplayName=COP'IA'LOTE
@@ -40,7 +40,7 @@ RedirectionGuard=no
 Name: "fr"; MessagesFile: "compiler:Languages\French.isl"
 
 [Messages]
-fr.WelcomeLabel2=Tu vas installer COP'IA'LOTE, ton copilote de jeu (profil ALICIA ou VIIRUS) : il regarde ton écran, t'écoute (F10 ou « Alicia… ») et te conseille, sans jamais jouer à ta place.%n%nIl faut une connexion Internet : l'installation télécharge Python et les voix (environ 2 Go la première fois).
+fr.WelcomeLabel2=Tu vas installer COP'IA'LOTE, ton copilote de jeu (profil ALICIA ou VIIRUS) : il regarde ton écran, t'écoute (F10, « VIIRUS… » ou « Alicia… ») et te conseille, sans jamais jouer à ta place.%n%nIl faut une connexion Internet : l'installation télécharge Python et les voix (environ 2 Go la première fois).
 
 [Files]
 Source: "..\pyproject.toml"; DestDir: "{app}"; Flags: ignoreversion
@@ -56,9 +56,9 @@ Source: "build\uv.exe"; DestDir: "{app}\bin"; Flags: ignoreversion
 Source: "build\.alicia-version"; DestDir: "{app}"; Flags: ignoreversion
 
 [Icons]
-Name: "{autodesktop}\ALICIA"; Filename: "{app}\.venv\Scripts\alicia-gui.exe"; WorkingDir: "{app}"; IconFilename: "{app}\src\alicia\assets\alicia.ico"; Comment: "ALICIA, copilote de jeu"
-Name: "{autoprograms}\ALICIA"; Filename: "{app}\.venv\Scripts\alicia-gui.exe"; WorkingDir: "{app}"; IconFilename: "{app}\src\alicia\assets\alicia.ico"; Comment: "ALICIA, copilote de jeu"
-Name: "{autoprograms}\ALICIA (diagnostic, avec terminal)"; Filename: "{app}\Lancer_Alicia.bat"; Parameters: "--console"; WorkingDir: "{app}"; IconFilename: "{app}\src\alicia\assets\alicia.ico"
+Name: "{autodesktop}\COP'IA'LOTE"; Filename: "{app}\.venv\Scripts\alicia-gui.exe"; WorkingDir: "{app}"; IconFilename: "{app}\src\alicia\assets\alicia.ico"; Comment: "COP'IA'LOTE, copilote de jeu"
+Name: "{autoprograms}\COP'IA'LOTE"; Filename: "{app}\.venv\Scripts\alicia-gui.exe"; WorkingDir: "{app}"; IconFilename: "{app}\src\alicia\assets\alicia.ico"; Comment: "COP'IA'LOTE, copilote de jeu"
+Name: "{autoprograms}\COP'IA'LOTE (diagnostic, avec terminal)"; Filename: "{app}\Lancer_Alicia.bat"; Parameters: "--console"; WorkingDir: "{app}"; IconFilename: "{app}\src\alicia\assets\alicia.ico"
 
 [Run]
 Filename: "{app}\.venv\Scripts\alicia-gui.exe"; WorkingDir: "{app}"; Description: "Lancer COP'IA'LOTE maintenant"; Flags: postinstall nowait skipifsilent
@@ -71,6 +71,9 @@ Type: filesandordirs; Name: "{app}"
 Type: files; Name: "{autodesktop}\VERIS.lnk"
 Type: files; Name: "{autoprograms}\VERIS.lnk"
 Type: files; Name: "{autodesktop}\VIIRUS.lnk"
+Type: files; Name: "{autodesktop}\ALICIA.lnk"
+Type: files; Name: "{autoprograms}\ALICIA.lnk"
+Type: files; Name: "{autoprograms}\ALICIA (diagnostic, avec terminal).lnk"
 Type: files; Name: "{autoprograms}\VIIRUS.lnk"
 
 [Code]

@@ -3025,7 +3025,7 @@ class MainWindow(QMainWindow):
                 creationflags=flags,
             )
         else:
-            log.warning("Redémarrage automatique indisponible : relance ALICIA à la main.")
+            log.warning("Redémarrage automatique indisponible : relance COP'IA'LOTE à la main.")
         self.quit_app()
 
     def _build_tray(self, icon):  # type: ignore[no-untyped-def]
@@ -3049,7 +3049,7 @@ class MainWindow(QMainWindow):
             ("Réglages", lambda: (self.show_panel(), self.show_page(2))),
             ("Mettre à jour", self.update_now),
             (None, None),
-            (f"Quitter {current_persona().title}", self.quit_app),
+            ("Quitter COP'IA'LOTE", self.quit_app),
         )
         for text, slot in entries:
             if text is None:

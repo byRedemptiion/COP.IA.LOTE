@@ -1,181 +1,172 @@
 # COP'IA'LOTE — copilote IA pour jeux vidéo (Windows)
 
-COP'IA'LOTE place une personnalité IA à côté du joueur : **ALICIA** ou **VIIRUS** (au choix, dans Réglages → Profil). Elle regarde la fenêtre de ton jeu, et quand tu lui poses une question, elle analyse la capture et te répond en quelques secondes. **Elle observe et conseille seulement** : aucun clic, aucune touche, aucune injection dans le jeu, aucune lecture de sa mémoire.
+**COP'IA'LOTE** est un copilote de jeu qui vit à côté de toi pendant tes parties. Il regarde ton écran, t'écoute quand tu lui parles, te répond à voix haute, et peut même intervenir de lui-même quand quelque chose d'important se passe. Deux personnalités au choix (Réglages → Profil) :
 
-![Interface d'ALICIA](docs/assets/interface.png)
+- **VIIRUS** : petit robot espiègle, voix de robot ;
+- **ALICIA** : sa coéquipière, voix féminine.
 
-**Version 0.4** : profils ALICIA / VIIRUS, deux cerveaux (rapide et réfléchi), duo entre deux PC, overlay OBS. Historique de la 0.3 : capture d'une fenêtre (même en plein écran), question écrite (F9) ou orale (F10 maintenu), recherche web, réponse affichée mot par mot et lue à voix haute, logs détaillés. La capture automatique, la mémoire de session et les interventions spontanées arrivent dans les versions suivantes ([feuille de route](docs/architecture.md#feuille-de-route)).
+Il **observe et conseille seulement** : aucun clic, aucune touche, aucune injection dans le jeu, aucune lecture de sa mémoire. Uniquement des images de l'écran, via les API publiques de Windows (comme OBS ou Discord).
+
+![Interface de COP'IA'LOTE](docs/assets/interface.png)
+
+## Sommaire
+
+- [Installer](#installer) · [Lancer](#lancer) · [Mise à jour](#mise-à-jour--bouton-maj)
+- [Lui parler](#lui-parler) · [Mode Copilote](#mode-copilote) · [Mode Stream](#mode-stream--répondre-au-chat-twitch)
+- [Voix](#voix) · [Duo](#duo--viirus-et-alicia-ensemble) · [Guides et images](#guides-et-images)
+- [Jeux et sites de référence](#jeux-et-sites-de-référence) · [Actions sur le PC](#actions-sur-le-pc) · [Vision et mémoire](#vision-et-mémoire-de-partie)
+- [IA et clés](#ia-et-clés) · [Confidentialité](#confidentialité-et-sécurité) · [Diagnostic](#diagnostic) · [Développer](#développer)
 
 ## Installer
 
-**Télécharge [ALICIA-Setup.exe](https://github.com/byRedemptiion/COP.IA.LOTE/releases/download/installer-latest/ALICIA-Setup.exe)** et double-clique dessus. C'est ce fichier qu'on partage.
+**Télécharge [COPIALOTE-Setup.exe](https://github.com/byRedemptiion/COP.IA.LOTE/releases/download/installer-latest/COPIALOTE-Setup.exe)** et double-clique dessus. C'est ce fichier qu'on partage.
 
-1. Choisis ton IA : **Gemini** (recommandé, gratuit pour commencer), **ChatGPT** (API OpenAI, payante à l'usage : crédit prépayé, l'abonnement ChatGPT ne compte pas), **Ollama** (IA locale, avancé : ALICIA le démarre et télécharge son modèle toute seule) ou « plus tard ».
-2. Pour Gemini, le bouton **« Ouvrir la page Gemini pour créer ma clé »** ouvre la page Google : *Create API key*, copie, colle. La clé reste sur ton PC (`%APPDATA%\Alicia\.env`).
-3. L'installateur télécharge Python, les composants et les voix (environ 2 Go la première fois, quelques minutes), crée l'icône **ALICIA** sur le Bureau et dans le menu Démarrer.
+1. Choisis ton IA : **Gemini** (recommandé), **ChatGPT** (API OpenAI, payante à l'usage : crédit prépayé, l'abonnement ChatGPT ne compte pas), **Ollama** (IA locale, avancé) ou « plus tard ».
+2. Pour Gemini, le bouton **« Ouvrir la page Gemini pour créer ma clé »** ouvre la page Google : *Create API key*, copie, colle. La clé reste sur ton PC.
+3. L'installateur télécharge Python, les composants et les voix locales (environ 2 Go la première fois, quelques minutes) et crée l'icône sur le Bureau et dans le menu Démarrer. L'icône prend ensuite le nom et l'image de ton profil (VIIRUS ou ALICIA).
 
-- Aucun droit administrateur : ALICIA s'installe dans `%LOCALAPPDATA%\Programs\ALICIA`.
-- Désinstallation : Paramètres Windows → Applications → ALICIA. Tes clés, tes jeux et tes réglages (`%APPDATA%\Alicia`) sont gardés.
+- Aucun droit administrateur nécessaire.
+- Désinstallation : Paramètres Windows → Applications → COP'IA'LOTE. Tes clés, tes jeux et tes réglages sont gardés.
 - Windows peut afficher « Windows a protégé votre ordinateur » (installateur non signé) : **Informations complémentaires → Exécuter quand même**.
-- Pas de clé pendant l'installation ? ALICIA te la demande au premier lancement (et le bouton **IA** du panneau permet d'en changer).
-
-Depuis les sources (développement) : `git clone`, puis `Installer_Alicia.bat`.
+- Pas de clé pendant l'installation ? Elle t'est demandée au premier lancement.
 
 ## Lancer
 
-Double-clique sur le raccourci **ALICIA** du Bureau (créé à l'installation ou à la première mise à jour), ou sur **`Lancer_Alicia.bat`**. **Aucun terminal ne reste ouvert** : seule ALICIA apparaît. Une fenêtre de progression ne s'affiche que si des composants doivent être installés.
+Double-clique sur l'icône du Bureau. Aucun terminal ne reste ouvert.
 
-- En jeu : **F10** maintenu pour lui parler, **F9** pour une analyse rapide.
-- Pour une question écrite depuis le panneau : choisis la fenêtre du jeu dans l'onglet **JEUX**, tape ta question, puis **Entrée** ou **Analyser**.
-- Le **Journal** (en bas du panneau) affiche chaque étape ; le fichier est dans `%LOCALAPPDATA%\Alicia\logs`.
-- Diagnostic avec terminal : `Lancer_Alicia.bat --console`. Essai sans jeu : `Lancer_Alicia.bat --demo`.
+- **Mode bulle** : seul le rond du robot reste à l'écran, en haut à droite, par-dessus le jeu. Ses réponses s'affichent dans une bulle (15 s au plus) puis s'effacent. Glisser = déplacer, double-clic = panneau complet, clic droit = menu (mode édition, voix, Copilote, jeu, réglages…).
+- **Panneau complet** : vision du jeu et état du Duo à gauche, le robot au centre, la conversation à droite. En haut : **💡 Copilote**, **📺 Stream**, **◉ Mode bulle**, les réglages et la mise à jour.
+- **États du rond** : EN VEILLE, **OBSERVE** (le Copilote regarde ta partie), **À L'ÉCOUTE** (il prend ta demande), RÉFLÉCHIT, PARLE.
+- Pour voir le rond par-dessus le jeu, règle le jeu en **plein écran fenêtré** (« sans bordure »). En plein écran exclusif, le raccourci et la voix marchent quand même.
 
 ### Mise à jour : bouton MAJ
 
-Le bouton **⟳ MAJ** (en haut du panneau, ou **clic droit sur le rond → Mettre à jour ALICIA**) télécharge la dernière version depuis GitHub, remplace les fichiers d'ALICIA et la redémarre. Ta clé (`.env`), tes jeux et tes réglages ne sont jamais touchés. Au lancement, ALICIA vérifie discrètement s'il y a du nouveau : le bouton devient **MAJ dispo**.
+Le bouton **⟳ MAJ** (ou clic droit sur le rond → Mettre à jour) télécharge la dernière version depuis GitHub, l'installe et redémarre. Tes clés, tes jeux et tes réglages ne sont jamais touchés. Au lancement, le bouton devient **MAJ dispo** s'il y a du nouveau.
 
-- Branche suivie : `[update] branch` dans la config (aujourd'hui `alice-v0.3`).
-- Si le dépôt devient **privé** : crée un jeton GitHub *fine-grained* en lecture seule (Repository access : ce dépôt ; Permissions : Contents → Read-only) et colle-le dans `.env` : `ALICIA_GITHUB_TOKEN=...`.
+## Lui parler
 
-### Mode bulle : seule ALICIA à l'écran
+- **Dis son nom en début de phrase** : « VIIRUS, quel objet je prends ? », « Alicia, lance Discord ». Ou son nom seul, puis ta demande quand le rond passe à **À L'ÉCOUTE**.
+- **Ou maintiens le raccourci** (F10 par défaut, ou un bouton latéral de souris : onglet Raccourcis) et parle.
+- Le micro attend son nom **sur ton PC** (petit modèle Whisper local) : rien n'est envoyé tant que son nom n'est pas dit.
+- Ta demande est transcrite par ton IA en ligne (Gemini ou OpenAI, environ 1 s), ou sur ton PC si tu préfères (Réglages → Perception).
+- **« VIIRUS, stop »** le fait taire. Après une question de sa part (« Tu confirmes ? »), pas besoin de redire son nom.
+- **« Je m'appelle Yannick »** : il retient ton prénom pour toujours (aussi dans Réglages → Profil).
+- Il voit l'écran **du moment où tu as commencé à parler**, et **commence à répondre dès sa première phrase**, sans attendre la fin.
 
-Au lancement, **seul le rond d'ALICIA s'affiche**, en haut à droite, toujours au-dessus des autres fenêtres. Ses réponses apparaissent dans une bulle à côté **uniquement pendant un échange**, puis s'effacent toutes seules. La bulle laisse passer les clics vers le jeu, et ni le rond ni la bulle n'apparaissent dans les captures envoyées à l'IA.
+## Mode Copilote
 
-- **Glisser** le rond pour le déplacer (la position est retenue) ; **double-clic** = panneau complet ; **clic droit** = menu (couper la voix, quitter…).
-- Dans le panneau complet, le bouton **◉ Mode bulle** y revient.
-- **Clic droit sur le rond → Mode édition** : taille du rond, largeur de la bulle, taille du texte, opacité, durée d'affichage et place de la bulle (gauche, droite, dessus, dessous), avec une bulle d'exemple et un aperçu en direct.
-- Pour voir le rond par-dessus le jeu, règle le jeu en **plein écran fenêtré** (« sans bordure »). En plein écran exclusif, le jeu passe devant : F9, F10 et la voix marchent quand même.
-- Pour démarrer sur le panneau complet : `mode = "full"` dans la section `[ui]` de `alicia.toml`.
+**💡 Copilote** (ou « active le copilote ») : il jette un coup d'œil à ta partie à intervalle régulier (8 s à 2 min) et **ne parle que si ça vaut le coup** : danger, erreur, opportunité, moment marquant.
 
-### Réveil vocal : « Alicia… »
+- Réglages → Copilote : **spontanéité** (discret, normal, bavard), **types d'interventions** (conseils, alertes, réactions, humour, trash-talk bienveillant, remarques pour le duo), délai de silence entre deux interventions. Une vraie urgence passe toujours.
+- Il se tait quand tu parles, quand il parle déjà, et **ne dépense aucun appel à l'IA hors jeu** (bureau, Discord, navigateur, OBS…).
+- Une clé refusée ou un quota atteint le mettent en pause, avec un message.
 
-Plus besoin de F10 : **commence ta phrase par « Alicia »**. « Alicia, lance Discord », « Alicia, quel objet je prends ? », « Alicia, éteins le PC ». Tu peux aussi dire « Alicia » seul, attendre que le rond passe au cyan, puis faire ta demande.
+## Mode Stream : répondre au chat Twitch
 
-- Tout reste **sur ton PC** : un petit modèle Whisper local repère son nom au début des phrases ; tant qu'il n'est pas dit, rien n'est envoyé ni gardé.
-- **Elle écoute même quand elle parle** : « Alicia, … » la coupe et devient ta nouvelle demande. **« Alicia, stop »** (ou « tais-toi », « chut ») la fait taire et annule l'analyse en cours (pendant qu'elle réfléchit, c'est la seule phrase écoutée).
-- **Pas besoin de redire « Alicia » pour répondre** : après « Tu confirmes ? » ou « Dis annule… », elle écoute ta réponse pendant 8 s (le rond passe au cyan).
-- **Onglet RACCOURCIS** : change la touche pour lui parler (F10) ou celle de l'analyse (F9) — clique, puis appuie sur la nouvelle touche, ou sur un **bouton latéral de souris** (4/5, le jeu le reçoit toujours). La liste des commandes vocales y est aussi.
-- Case **Réveil « Alicia »** dans le panneau, ou **clic droit sur le rond**, pour la couper (par exemple en vocal avec des amis qui disent son nom).
-- Premier lancement : le petit modèle (~140 Mo) se télécharge tout seul en arrière-plan.
+**📺 Stream** (ou « active le mode stream ») : il lit le chat de ta chaîne Twitch (Réglages → Stream) et **répond à voix haute** aux spectateurs.
 
-### Parler à Alicia : F10 (maintenir)
+- Lecture seule, sans compte : il n'écrit jamais dans le chat.
+- Il répond quand on le nomme (« @VIIRUS », « !viirus »), aux questions, ou à tout de temps en temps ; une réponse toutes les 20 s au plus (réglable) ; pseudos ignorés au choix.
+- Les messages du chat sont traités comme des messages d'inconnus : **jamais d'action sur ton PC**, jamais lus mot pour mot. Bots, liens, insultes et tentatives de lui faire dire quelque chose sont ignorés.
+- **Overlay OBS** : une page à ajouter comme source « Navigateur » (adresse dans Réglages → Stream). Le robot y flotte, s'anime, et ses réponses s'affichent en sous-titres.
+- **🔊 Sa voix dans OBS** : la page joue aussi sa voix (cocher « Contrôler l'audio via OBS » dans la source) : il a sa propre piste dans le mélangeur d'OBS (volume, muet).
 
-**Maintiens F10 en jeu, pose ta question à voix haute, relâche.** Alicia capture l'écran, envoie ta voix et l'image à Gemini, affiche ta question transcrite puis **répond à voix haute**. Pour la couper, réappuie sur F10 ou clique sur « Couper la voix ».
+## Voix
 
-- **Ta voix est comprise sur ton PC** par faster-whisper (modèle `large-v3-turbo`, sur le processeur : gratuit, privé, n'utilise pas la carte graphique du jeu). Plus rapide mais moins précis : `[voice] whisper_model = "small"`. Pour revenir à l'envoi direct de l'audio à Gemini : `[voice] stt = "gemini"`.
-- **Deux voix pour Alicia, au choix dans le menu à côté de « Réponse vocale »** : Edge (voix Microsoft `fr-FR-DeniseNeural`, gratuite, en ligne) ou Kokoro (voix française `ff_siwis`, locale et hors ligne, calculée sur le processeur). Autres voix Edge : `uv run alicia-diag voices`.
-- Les modèles locaux (Whisper ≈ 800 Mo, Kokoro ≈ 340 Mo) sont téléchargés une seule fois à l'installation, dans `%LOCALAPPDATA%\Alicia\models`.
-- Micro ou haut-parleur précis : `uv run alicia-diag devices`, puis `[voice] input_device` / `output_device` (une partie du nom suffit).
-- Tester sans jeu : `uv run alicia-diag record` (micro), `uv run alicia-diag transcribe micro.wav` (compréhension) et `uv run alicia-diag say --engine kokoro` (voix).
-- Le micro n'est ouvert que pendant que tu maintiens F10 : rien n'est écouté en dehors, et aucun enregistrement n'est gardé sur le disque.
+Réglages → Profil → **Catalogue des voix** : ▶ Écouter, puis Choisir.
 
-### Actions sur le PC (comme un Jarvis)
+| Moteur | Coût | Note |
+| --- | --- | --- |
+| **Edge** (Microsoft) | gratuit | 13 voix françaises, en ligne, sans quota |
+| **Gemini** (Google) | ta clé Gemini | 30 voix expressives |
+| **ChatGPT** (OpenAI) | ta clé OpenAI | 13 voix très naturelles |
+| **✨ Voix sur mesure** (Gemini 3.8) | ta clé Gemini | tu décris la voix, Google la crée ; ✏️ renommer, ✕ supprimer |
+| **VIIRUS / ALICIA** (sur ton PC) | gratuit | voix robot locales, hors ligne |
 
-Avec **F10** ou à l'écrit, Alicia exécute certaines demandes **sur Windows, jamais dans le jeu** :
+- **Effets** : Masculin, Féminin, Jeune, Robot, Petite robote, Petit robot (VIIRUS), Gros robot ; « Réglages fins » pour la hauteur, le métal et la clarté. Les voix sur mesure n'ont jamais d'effet sonore.
+- **Jeu de voix** : une consigne libre pour Gemini et ChatGPT (« voix posée et chaleureuse… »).
+- **Clé voix** (Réglages → IA → Avancé) : une clé à part pour la voix, par exemple réfléchir avec ChatGPT et parler avec une voix Gemini.
+- Si une voix en ligne ne répond pas (quota atteint, coupure), **sa voix locale prend le relais** et un message te le dit. Attention : les voix Gemini sont limitées par Google (au niveau 1 : 10 demandes par minute et 100 par jour).
+
+## Duo : VIIRUS et ALICIA ensemble
+
+Deux joueurs, deux PC, deux robots qui se parlent (Réglages → Social → Duo, même code des deux côtés).
+
+- Le panneau **DUO** montre si l'autre robot est là.
+- « VIIRUS, demande à Alicia ce qu'elle pense de mon build » : la question est transmise, la réponse revient à voix haute. Les robots peuvent aussi discuter entre eux.
+- Messages chiffrés de bout en bout, jamais d'action sur le PC à partir d'un message reçu.
+- **Personnes** (Réglages → Social) : les prénoms et la prononciation des gens avec qui tu joues.
+
+## Guides et images
+
+Avec la recherche web, il trouve le bon guide et peut **ouvrir la page** ou **afficher l'image utile** (carte, emplacement) dans un petit panneau flottant. À la voix : « ouvre le guide », « montre-moi la carte », « ferme l'image ». Il n'ouvre que des pages vraiment trouvées par la recherche, jamais une adresse inventée.
+
+## Jeux et sites de référence
+
+Onglet **Jeux** : un profil par jeu, reconnu tout seul à sa fenêtre (ou à son .exe), avec **tes sites de référence** à consulter en premier. Profils fournis (Overwatch, World of Warcraft…) modifiables, masquables ; « ＋ Ajouter un jeu » pour les autres. Tout est dans `%APPDATA%\Alicia\games.toml`.
+
+## Actions sur le PC
+
+Quelques demandes sont exécutées **sur Windows, jamais dans le jeu**, reconnues sur ton PC sans IA :
 
 | Exemple | Action | Sécurité |
 | --- | --- | --- |
-| « Monte le son », « baisse le volume de 20 », « volume à 30 », « coupe le son » | Volume | immédiat |
-| « Lance Discord », « ouvre Spotify » | Applis de la liste `[actions.apps]` | immédiat |
-| « Rappelle-moi dans 20 minutes de manger », « minuteur de 5 minutes » | Rappel dit à voix haute | immédiat |
-| « Verrouille le PC », « mets le PC en veille », « ferme Discord » | Session, veille, fermeture d'appli | **confirmation** (« oui » / « non ») |
+| « Monte le son », « volume à 30 », « coupe le son » | Volume | immédiat |
+| « Lance Discord », « ouvre YouTube » | Applis de la liste | immédiat |
+| « Rappelle-moi dans 20 minutes de manger » | Rappel à voix haute | immédiat |
+| « Verrouille le PC », « ferme Discord » | Session, fermeture d'appli | **confirmation** |
 | « Éteins le PC », « redémarre le PC » | Extinction / redémarrage | **confirmation + 20 s**, « annule » l'arrête |
 
-- Les demandes sont reconnues **sur ton PC, sans IA** (instantané, gratuit, hors ligne). Seules les actions de cette liste existent : Alicia ne peut jamais lancer une commande libre.
-- Un « non » l'emporte toujours, et une confirmation expire au bout de 20 s.
-- Ajouter une appli dans `alicia.toml` :
+Seules les actions de cette liste existent : il ne peut jamais lancer une commande libre.
 
-```toml
-[actions.apps]
-obs = { launch = "C:/Program Files/obs-studio/bin/64bit/obs64.exe", process = "obs64.exe" }
-```
+## Vision et mémoire de partie
 
-### Ce que regarde ALICIA : application, curseur ou écran
+- **Vision** : l'application au premier plan (par défaut), la zone autour du curseur (« c'est quoi ça ? ») ou l'écran entier.
+- **Vision en direct** : une capture récente est gardée en mémoire ; rien n'est envoyé tant que tu ne demandes rien (ou que le Copilote n'est pas actif).
+- **Mémoire de partie** : une petite image datée toutes les 30 s, sur ton PC, pour « il y a une heure, c'était quoi mon objet ? ». Durée, place et dossier réglables, nettoyage automatique.
 
-Menu **Vision** (panneau, clic droit sur le rond, ou Réglages) :
-- **L'application** : le jeu au premier plan (par défaut).
-- **Autour du curseur** : une zone autour de ta souris ; pointe un objet, un sort ou un texte et demande « c'est quoi ça ? ». Un cercle rose montre à l'IA ce que tu désignes. Taille de la zone dans Réglages.
-- **L'écran entier** : tout l'écran du jeu (pratique avec un guide ou une carte à côté).
-- **Vision en direct** (activée par défaut, Réglages → Vision) : ALICIA garde en mémoire une capture récente (toutes les secondes). Quand tu commences à parler (F10 ou « Alicia… »), l'image de cet instant est déjà prête : pas besoin de F9, et l'IA voit l'écran du moment où tu as parlé. Rien n'est envoyé tant que tu ne poses pas de question.
+## IA et clés
 
-### Mémoire de partie : « il y a une heure… »
+| IA | Coût | Avantage | Limite |
+| --- | --- | --- | --- |
+| **Gemini** (recommandé) | offre gratuite puis à l'usage | rapide, ne prend pas le GPU du jeu | Internet |
+| **ChatGPT** (API OpenAI) | à l'usage (crédit prépayé) | très bonnes réponses | Internet |
+| **Ollama** (local) | gratuit | hors ligne | partage le GPU avec le jeu, plus lent |
 
-Pendant la vision en direct, ALICIA garde une petite image datée toutes les 30 s. Demande « il y a une heure, c'était quoi mon objet ? », « tout à l'heure, tu as vu le boss ? » ou « à 21h30, j'étais où ? » : les images de ce moment partent avec ta question.
+- **Deux cerveaux** : un rapide pour les réponses courantes, un réfléchi pour les questions complexes (Réglages → IA).
+- **Clés** : Réglages → IA → Avancé → **Gérer mes clés** (plusieurs clés par fournisseur, test de la clé). Elles restent dans `%APPDATA%\Alicia\.env`, jamais affichées ni journalisées.
+- Tous les réglages et leur valeur par défaut : [`src/alicia/default.toml`](src/alicia/default.toml).
 
-- Nettoyage automatique au lancement et toutes les heures : images de plus de 20 h effacées, 10 000 images et 5 Go au plus (réglables).
-- **Réglages → Mémoire de partie** : fréquence, durée (jusqu'à 30 jours), place maximale (jusqu'à 500 Go), **disque ou dossier dédié**, effacement à la fermeture, bouton « Effacer maintenant ».
-- Les images restent sur ton PC et ne partent à l'IA que si ta question parle du passé.
+## Confidentialité et sécurité
 
-### Tes jeux et tes sites de référence
-
-ALICIA a un **profil par jeu** : elle sait à quel jeu tu joues (sans le deviner sur l'image), quoi regarder à l'écran, et **sur quels sites chercher en premier** quand la recherche web est active. Profils fournis : **Overwatch** et **World of Warcraft: Forever** (Icy Veins, Method, Mobalytics, Warcraft Tavern, Warcraft Wiki).
-
-- Le jeu est reconnu tout seul à sa fenêtre. Tu peux aussi le choisir : menu du panneau, ou **clic droit sur le rond → Jeu**.
-- **Plusieurs versions d'un même jeu** (WoW actuel, Classic, Forever…) : elles ont le même titre de fenêtre, ALICIA les distingue par leur **dossier d'installation** (`_retail_`, `_classic_`, `_forever_`). Sur la fiche d'un jeu, « Remplir avec la fenêtre du jeu » reprend le programme et le dossier de la fenêtre observée, et **Dupliquer** crée une nouvelle version à partir d'un jeu existant.
-- **Onglet JEUX** (en haut du panneau) : tous tes jeux en cartes. Clique sur un jeu pour ouvrir sa fiche : **ajoute un site** (colle simplement l'adresse), retire-en, change l'ordre (du plus fiable au moins fiable), règle comment le reconnaître et ce qu'ALICIA doit savoir. « Enregistrer » et c'est pris en compte tout de suite. « ＋ Ajouter un jeu » crée un nouveau jeu, prérempli avec la fenêtre observée.
-- La **fenêtre du jeu** se choisit aussi dans cet onglet (inutile en jeu : F9 et F10 prennent la fenêtre au premier plan).
-- Tout est enregistré dans `%APPDATA%\Alicia\games.toml`, modifiable à la main (`Mes_Jeux_Alicia.bat` l'ouvre). « Rétablir l'original » annule tes changements sur un jeu fourni.
-- Le journal indique le jeu reconnu et le nom du programme (`Jeu : … (fenêtre xxx.exe, détecté)`), utile pour ajouter un jeu.
-
-### Recherche web
-
-La case **Recherche web** laisse Gemini faire une recherche Google avant de répondre : méta actuelle, builds, notes de patch. Les sources s'affichent sous la réponse. Cela ajoute une à deux secondes ; l'offre gratuite a aussi un quota de recherches par jour.
-
-### Jouer en plein écran : le raccourci F9
-
-En plein écran, un jeu se réduit souvent dès que tu cliques sur une autre fenêtre : Alicia ne peut alors plus le capturer. Reste dans le jeu et **appuie sur F9** : Alicia capture la fenêtre active et lance l'analyse, avec la question tapée dans Alicia ou, à défaut, une question générale. Quand la réponse est prête, Alicia clignote dans la barre des tâches. Le raccourci se change dans `alicia.toml` (`[hotkeys] analyze = "ctrl+F9"`) ; tant qu'Alicia est ouverte, le jeu ne reçoit plus cette touche.
-
-### Overwatch et jeux en plein écran
-
-- Alicia utilise la capture Windows Graphics Capture : elle fonctionne en fenêtré, en plein écran fenêtré et, sous Windows 11, en général aussi en plein écran.
-- Si la fenêtre sort noire en plein écran, Alicia capture **l'écran entier où se trouve le jeu** et l'indique sous l'aperçu (« Repli après : … »).
-- Alicia n'utilise que des API publiques de Windows, comme OBS ou Discord. Blizzard peut cependant considérer des conseils en direct en partie classée comme une aide extérieure : teste plutôt en **Stadium** (choix d'objets), en entraînement ou en partie personnalisée.
-
-## Fournisseur d'IA
-
-| Fournisseur | Réglage | Coût | Avantage | Limite |
-| --- | --- | --- | --- | --- |
-| **Gemini** (défaut) | `GEMINI_API_KEY` dans `.env` | offre gratuite (quota par minute et par jour) | rapide, ne prend pas de GPU au jeu | nécessite Internet |
-| Ollama (local) | `ALICE_AI_PROVIDER=ollama` + [Ollama](https://ollama.com) + `ollama pull qwen2.5vl:7b` | gratuit | hors ligne | partage le GPU avec le jeu, plus lent |
-| Factice | `ALICE_AI_PROVIDER=fake` | — | tests sans réseau | ne regarde pas l'image |
-
-Pour aller plus vite : créer un fichier `alicia.toml` à la racine avec, par exemple :
-
-```toml
-[ai.gemini]
-model = "gemini-flash-lite-latest"   # plus rapide, un peu moins précis
-```
-
-`alicia-diag models` liste les modèles accessibles avec ta clé. Tous les réglages et leur valeur par défaut sont dans [`src/alicia/default.toml`](src/alicia/default.toml).
+- Aucune entrée envoyée au jeu, aucune lecture de sa mémoire : uniquement des images de l'écran.
+- Les images et ta voix ne partent à l'IA que lorsque tu poses une question, ou pendant le mode Copilote si tu l'actives.
+- Les clés ne quittent ton PC que vers leur fournisseur, et n'apparaissent jamais dans les journaux.
+- Messages du duo et du chat Twitch : de simples données, jamais des ordres pour ton PC.
 
 ## Diagnostic
 
-Les logs sont dans `%LOCALAPPDATA%\Alicia\logs\alicia.log` (bouton **Ouvrir le dossier des logs**). Coche **Logs détaillés** ou lance `Lancer_Alicia.bat --debug` pour plus de détails. Les clés ne sont jamais écrites dans les logs ; les questions et réponses ne le sont qu'en mode détaillé.
-
-Outils en ligne de commande (dans le dossier du projet) :
-
-```powershell
-uv run alicia-diag list-windows                      # fenêtres vues par Alicia
-uv run alicia-diag capture overwatch --out ow.png    # capture seule, sans IA
-uv run alicia-diag capture overwatch --backend printwindow
-uv run alicia-diag ask ow.png "Quel objet est le meilleur ?"
-uv run alicia-diag models                            # modèles Gemini disponibles
-```
+Journal : `%LOCALAPPDATA%\Alicia\logs\alicia.log` (bouton **Journal** en bas du panneau). Lancement avec terminal : menu Démarrer → « (diagnostic, avec terminal) ».
 
 | Problème | Que faire |
 | --- | --- |
-| « Clé Gemini manquante / refusée » | Vérifier la ligne `GEMINI_API_KEY=` dans `.env`, puis relancer. |
-| « Quota Gemini atteint » | Attendre une minute (limite de l'offre gratuite). |
-| Capture noire ou refusée | Essayer le mode plein écran fenêtré du jeu ; envoyer `alicia-diag capture … --debug` et le log. |
-| « Modèle introuvable » | `alicia-diag models`, puis indiquer un modèle de la liste dans `alicia.toml`. |
+| « Clé refusée » | Réglages → IA → Avancé → Gérer mes clés, puis « Tester ». |
+| « Quota atteint » | Attendre (une minute, ou le lendemain pour un quota par jour). |
+| Il ne m'entend pas | Réglages → Perception → micro et « Tester le micro » ; vérifier le réveil vocal. |
+| Capture noire | Mettre le jeu en plein écran fenêtré ; envoyer le journal. |
+| La mise à jour échoue | Fermer COP'IA'LOTE, puis relancer `Lancer_Alicia.bat` dans `%LOCALAPPDATA%\Programs\ALICIA`. |
+
+Outils en ligne de commande (dossier du projet) : `uv run alicia-diag list-windows`, `capture`, `ask`, `models`, `devices`, `voices`.
 
 ## Développer
 
 ```powershell
-uv sync --python 3.12 --extra dev
-uv run pytest -q
-uv run ruff check src tests
-uv run alicia --smoke-test     # parcours complet hors écran, IA factice
+uv sync --python 3.12 --frozen --extra dev
+uv run --frozen ruff check src tests
+uv run --frozen pytest -q
+uv run --frozen alicia --smoke-test     # parcours complet hors écran, IA factice
 ```
 
-Architecture et choix techniques : [docs/architecture.md](docs/architecture.md). Cahier des charges : [docs/cahier-des-charges.md](docs/cahier-des-charges.md).
+Branche stable : `alice-v0.3` (suivie par le bouton MAJ). Le code garde le nom technique `alicia` (paquet Python, dossiers `%APPDATA%\Alicia` et `%LOCALAPPDATA%\Alicia`) pour que les installations existantes et leurs réglages continuent de fonctionner.
+
+Architecture : [docs/architecture.md](docs/architecture.md) · Cahier des charges : [docs/cahier-des-charges.md](docs/cahier-des-charges.md) · Règles du projet : [AGENTS.md](AGENTS.md).

@@ -101,7 +101,7 @@ def _fatal(message: str) -> None:
             if os.environ.get("QT_QPA_PLATFORM") == "offscreen":
                 return
             _app = QApplication.instance() or QApplication(sys.argv[:1])
-            QMessageBox.critical(None, "ALICIA ne peut pas démarrer", message)
+            QMessageBox.critical(None, "COP'IA'LOTE ne peut pas démarrer", message)
         except Exception:  # noqa: BLE001 - dernier recours : le message est déjà au journal
             pass
 

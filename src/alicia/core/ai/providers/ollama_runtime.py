@@ -204,7 +204,7 @@ class OllamaRuntime:
         process, self.process = self.process, None
         if process is not None and process.poll() is None:
             process.terminate()
-            log.info("Ollama arrêté (démarré par ALICIA)")
+            log.info("Ollama arrêté (démarré par COP'IA'LOTE)")
 
 
 def _ollama_env() -> dict[str, str]:

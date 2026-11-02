@@ -1,6 +1,6 @@
-# Développer Alicia
+# Développer COP'IA'LOTE
 
-Alicia est un copilote IA pour jeux vidéo sous Windows. Elle observe une fenêtre et conseille le joueur, sans jamais jouer à sa place. Le cahier des charges de référence est `docs/cahier-des-charges.md` ; l'architecture est décrite dans `docs/architecture.md`.
+COP'IA'LOTE est un copilote IA pour jeux vidéo sous Windows, incarné par deux entités au choix (VIIRUS, ALICIA). Il observe une fenêtre et conseille le joueur, sans jamais jouer à sa place. Le code garde le nom technique `alicia` (paquet, dossiers de données) pour la compatibilité des installations. Le cahier des charges de référence est `docs/cahier-des-charges.md` ; l'architecture est décrite dans `docs/architecture.md`.
 
 ## Règles non négociables
 

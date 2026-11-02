@@ -744,7 +744,7 @@ def build_menu(orb: OrbWindow, menu) -> None:  # type: ignore[no-untyped-def]
     _add(menu, "⚙  Réglages", orb.settings_requested.emit)
     _add(menu, "↻  Mettre à jour COP'IA'LOTE", orb.update_requested.emit)
     menu.addSeparator()
-    _add(menu, f"✕  Quitter {title}", orb.quit_requested.emit)
+    _add(menu, "✕  Quitter COP'IA'LOTE", orb.quit_requested.emit)
 
 
 class EditPanel(QWidget):
