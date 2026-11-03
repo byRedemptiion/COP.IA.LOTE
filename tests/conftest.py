@@ -18,6 +18,9 @@ def isolated_env(tmp_path, monkeypatch):
     from alicia.core.audio import voice_design
 
     voice_design.resume_online()  # pause « quota » d'un autre test : oubliée
+    from alicia.core.audio import speaker as _speaker
+
+    _speaker.BACKUP_USED["t"] = -1e9
     from alicia.core import usage
 
     usage.use_file(None)  # compteur de consommation : dans le dossier du test

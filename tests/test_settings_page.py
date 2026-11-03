@@ -48,10 +48,10 @@ def test_settings_tab_applies_and_saves_voice_and_mic(qt_app, tmp_path, monkeypa
 
     page.input_box.setCurrentIndex(page.input_box.findData("Microphone fifine"))
     page.output_box.setCurrentIndex(page.output_box.findData("Casque G Pro"))
-    page.engine_box.setCurrentIndex(page.engine_box.findData("kokoro"))
+    window.change_setting("slot_assign", ("main", "kokoro|ff_siwis"))
     page.sensitivity.setValue(2)
-    page.speed.setValue(20)
-    page.speed.sliderReleased.emit()
+    page.voice_panel.open_editor("main")  # ✎ Modifier la voix principale
+    page.voice_panel.editor.rows["rate"][0].setValue(20)
     page.mode_box.setCurrentIndex(page.mode_box.findData("full"))
 
     voice = window.services.settings.voice

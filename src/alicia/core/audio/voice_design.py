@@ -295,6 +295,11 @@ _PAUSED_UNTIL = {"t": 0.0}
 on_notice = None  # type: ignore[var-annotated]
 
 
+def online_paused() -> bool:
+    """Vrai pendant la pause des voix en ligne (quota atteint…) : le secours parle."""
+    return time.monotonic() < _PAUSED_UNTIL["t"]
+
+
 def resume_online() -> None:
     """Nouvelle clé : on retente la voix en ligne tout de suite."""
     _PAUSED_UNTIL["t"] = 0.0

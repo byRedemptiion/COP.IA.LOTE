@@ -36,9 +36,9 @@ def test_new_tabs_and_old_names_still_work(qt_app, tmp_path, monkeypatch):
             "profile": [
                 page.persona_box,
                 page.player_name,
-                page.engine_box,
-                page.volume,
-                page.cv_sliders["reverb"][0],
+                page.voice_panel,
+                page.voice_panel.cards["main"],
+                page.voice_panel.cards["backup"],
                 page.anims_folder,
             ],
             "ai": [page.fast_box, page.deep_box, page.ollama_model],

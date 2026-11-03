@@ -155,6 +155,7 @@ class MainWindow(QMainWindow):
             migrate(services.settings.voice)
         except OSError:
             pass
+        self._migrate_backup_slot()
         self.pool = QThreadPool.globalInstance()
         self.windows: list[WindowInfo] = []
         self.observed: WindowInfo | None = None
@@ -1240,6 +1241,15 @@ class MainWindow(QMainWindow):
                 "fx_metal",
                 "fx_bright",
                 "fx_reverb",
+                "backup_enabled",
+                "backup_rate",
+                "backup_volume",
+                "backup_pitch",
+                "backup_metal",
+                "backup_bright",
+                "backup_reverb",
+                "backup_style",
+                "volume",
             } & changes.keys():
                 speaker.synthesizer = make_synthesizer(voice)
                 speaker.warm_up_async()
@@ -1347,6 +1357,21 @@ class MainWindow(QMainWindow):
             )
             self._load_settings_page()
             self._notify(f"Voix principale : {voice_name(name)}")
+        elif key == "slot_assign":
+            slot, voice_key = value  # type: ignore[misc]
+            self.assign_voice(str(slot), str(voice_key))
+        elif key == "slot_edit":
+            slot, name, number = value  # type: ignore[misc]
+            self.tune_voice(str(slot), str(name), number)
+        elif key == "slot_preview":
+            self.preview_slot(str(value))
+        elif key == "slot_reset":
+            self.reset_slot(str(value))
+        elif key == "slot_to_library":
+            self.slot_to_library(str(value))
+        elif key == "backup_enabled":
+            self._update_voice(backup_enabled=bool(value))
+            self.settings_page.voice_panel.load(self.services.settings.voice)
         elif key in ("custom_preview", "custom_listen"):
             self.preview_custom_voice(value)
         elif key == "custom_save":
@@ -1362,7 +1387,7 @@ class MainWindow(QMainWindow):
         elif key == "custom_delete":
             from alicia.core.audio.custom_voices import delete_custom
 
-            delete_custom(str(value))
+            delete_custom(str(value))  # les voix déjà choisies gardent leur copie des réglages
             if self.services.settings.voice.backup_voice == f"custom:{value}":
                 self._update_voice(backup_voice="edge:fr-FR-RemyMultilingualNeural")
             self.settings_page.fill_custom_voices()
@@ -1721,51 +1746,80 @@ class MainWindow(QMainWindow):
         if answer == QMessageBox.StandardButton.Yes:
             self.restart()
 
-    def preview_voice(self, key: str) -> None:
-        """Catalogue des voix : la même phrase avec la voix ``engine|nom``, sans la choisir."""
+    def _migrate_backup_slot(self) -> None:
+        """v0.17 : le secours « custom:id » (une de Mes voix) devient une copie de ses réglages."""
         from dataclasses import replace
 
-        from alicia.core.audio.speaker import make_synthesizer
-
-        engine, _, name = key.partition("|")
         voice = self.services.settings.voice
-        if engine == "openai" and not voice.openai_key:
-            self.settings_page.gallery_state.setText(
-                "⚠ Les voix ChatGPT demandent une clé OpenAI (IA → Avancé → Gérer mes clés)."
-            )
+        if not voice.backup_voice.startswith("custom:"):
             return
-        if engine == "gemini" and not voice.gemini_key:
-            self.settings_page.gallery_state.setText(
-                "⚠ Les voix Gemini demandent une clé Gemini (IA → Avancé → Gérer mes clés)."
-            )
-            return
-        field = {"gemini": "gemini_voice", "openai": "openai_voice"}.get(engine, "tts_voice")
-        trial = replace(  # la voix telle quelle, sans réglages fins
-            voice,
-            tts_engine=engine,
-            voice_effect="",
-            voice_style="",
-            fx_pitch=0.0,
-            fx_metal=0,
-            fx_bright=50,
-            fx_reverb=0,
-            **{field: name},  # type: ignore[arg-type]
-        )
-        speaker = self.services.speaker
-        text = (
-            f"Salut, moi c'est {current_persona().name} ! Attention, un ennemi arrive sur ta "
-            "gauche : recule et soigne-toi, je surveille la carte."
-        )
-        from alicia.core.audio.voice_design import voice_name
+        from alicia.core.audio.custom_voices import backup_changes, get_custom
 
-        log.info("Écoute d'essai : voix %s (%s)", name, engine)
-        self.settings_page.gallery_state.setText(f"▶ {voice_name(name)}…")
-        if speaker is None or not speaker.speak(text, make_synthesizer(trial)):
-            self.settings_page.gallery_state.setText(
-                "⚠ Voix indisponible : vérifie la sortie audio."
-            )
+        custom = get_custom(voice.backup_voice[7:])
+        changes = backup_changes(custom) if custom else {"backup_voice": "", "backup_name": ""}
+        voice = replace(voice, **changes)  # type: ignore[arg-type]
+        self.services.settings = replace(self.services.settings, voice=voice)
+        for key, value in changes.items():
+            self._save("voice", key, value)
+
+    def _sample_text(self) -> str:
+        return (
+            f"Salut, c'est {current_persona().name} ! Alors, tu comptes jouer correctement "
+            "aujourd'hui ou je prépare déjà les excuses ?"
+        )
+
+    def _play_sample(self, synthesizer, label: str) -> None:  # type: ignore[no-untyped-def]
+        """Joue la phrase d'essai (une seule à la fois : l'écoute précédente s'arrête)."""
+        speaker = self.services.speaker
+        state = self.settings_page.gallery_state
+        self.stop_voice()
+        state.setText(f"▶ {label}…")
+        if speaker is None or not speaker.speak(self._sample_text(), synthesizer):
+            state.setText("⚠ Voix indisponible : vérifie la sortie audio.")
             return
         self.stop_voice_button.setEnabled(True)
+
+    @staticmethod
+    def _with_gain(synthesizer, gain: float):  # type: ignore[no-untyped-def]
+        if abs(gain - 1.0) < 0.01:
+            return synthesizer
+
+        def synthesize(text: str):  # type: ignore[no-untyped-def]
+            import numpy as np
+
+            samples = synthesizer(text).astype(np.float32) * gain
+            return np.clip(samples, -32768, 32767).astype(np.int16)
+
+        return synthesize
+
+    def preview_voice(self, key: str) -> None:
+        """Bibliothèque : la phrase d'essai avec la voix ``moteur|nom`` telle quelle."""
+        from dataclasses import replace
+
+        from alicia.core.audio.speaker import primary_synthesizer
+        from alicia.ui.voice_panel import voice_label
+
+        engine, _, name = key.partition("|")
+        if not self._voice_ready(engine):
+            return
+        voice = self.services.settings.voice
+        field = {"gemini": "gemini_voice", "openai": "openai_voice", "kokoro": "kokoro_voice"}
+        changes: dict[str, object] = {
+            "tts_engine": engine,
+            "voice_effect": "",
+            "voice_style": "",
+            "fx_pitch": 0.0,
+            "fx_metal": 0,
+            "fx_bright": 50,
+            "fx_reverb": 0,
+            "tts_rate": "+0%",
+            "kokoro_speed": 1.0,
+        }
+        if name:
+            changes[field.get(engine, "tts_voice")] = name
+        trial = replace(voice, **changes)  # type: ignore[arg-type]
+        log.info("Écoute d'essai : voix %s (%s)", name or engine, engine)
+        self._play_sample(primary_synthesizer(trial), voice_label(engine, name))
 
     def _draft_voice(self, value: object):  # type: ignore[no-untyped-def]
         """Une voix de « Mes voix » (identifiant) ou celle du créateur (dict)."""
@@ -1783,6 +1837,8 @@ class MainWindow(QMainWindow):
                     bright=int(value.get("bright", 50)),  # type: ignore[call-overload]
                     reverb=int(value.get("reverb") or 0),  # type: ignore[call-overload]
                     style=str(value.get("style") or ""),
+                    rate=int(value.get("rate") or 0),  # type: ignore[call-overload]
+                    volume=int(value.get("volume", 100)),  # type: ignore[call-overload]
                 ).clamped()
             except (TypeError, ValueError):
                 return None
@@ -1800,53 +1856,210 @@ class MainWindow(QMainWindow):
         return True
 
     def preview_custom_voice(self, value: object) -> None:
-        """▶ d'une voix réglée (créateur ou Mes voix) : la phrase d'essai avec ses réglages."""
+        """▶ d'une voix réglée (créateur ou Mes voix) : rendu réel, réglages et volume compris."""
         from alicia.core.audio.custom_voices import voice_settings
-        from alicia.core.audio.speaker import make_synthesizer
+        from alicia.core.audio.speaker import primary_synthesizer
 
         custom = self._draft_voice(value)
         if custom is None or not custom.voice or not self._voice_ready(custom.engine):
             return
-        trial = voice_settings(self.services.settings.voice, custom)
-        speaker = self.services.speaker
-        text = (
-            f"Salut, moi c'est {current_persona().name} ! Attention, un ennemi arrive sur ta "
-            "gauche : recule et soigne-toi, je surveille la carte."
-        )
-        self.settings_page.gallery_state.setText(f"▶ {custom.name or 'Essai'}…")
-        if speaker is None or not speaker.speak(text, make_synthesizer(trial)):
-            self.settings_page.gallery_state.setText(
-                "⚠ Voix indisponible : vérifie la sortie audio."
-            )
-            return
-        self.stop_voice_button.setEnabled(True)
+        voice = self.services.settings.voice
+        trial = voice_settings(voice, custom)
+        gain = custom.volume / max(1, voice.volume)  # le haut-parleur applique la principale
+        synth = self._with_gain(primary_synthesizer(trial), gain)
+        self._play_sample(synth, custom.name or "Essai")
 
     def save_custom_voice(self, value: dict) -> None:  # type: ignore[type-arg]
-        from alicia.core.audio.custom_voices import (
-            current_custom,
-            main_changes,
-            save_custom,
-        )
+        from alicia.core.audio.custom_voices import save_custom
 
         custom = self._draft_voice(value)
         if custom is None or not custom.voice:
             return
-        was_main = current_custom(self.services.settings.voice)
         try:
             saved = save_custom(custom)
         except OSError as exc:
             log.error("Mes voix : enregistrement impossible (%r)", exc)
             self._notify("⚠ Voix non enregistrée.")
             return
-        if was_main is not None and was_main.id == saved.id:
-            self._update_voice(**main_changes(saved))  # c'était sa voix : elle suit la retouche
         page = self.settings_page
-        page._cv_editing = saved.id
+        page.voice_panel._cv_editing = saved.id
         page.fill_custom_voices()
+        use = str(value.get("use") or "")
+        if use in ("main", "backup"):
+            self.assign_voice(use, f"custom|{saved.id}")
+            which = "voix principale" if use == "main" else "voix de secours"
+            page.gallery_state.setText(f"💾 « {saved.name} » enregistrée et choisie en {which}.")
+            return
         self._load_settings_page()
         page.gallery_state.setText(
-            f"💾 « {saved.name} » enregistrée dans Mes voix : choisis-la en Principale ou Secours."
+            f"💾 « {saved.name} » enregistrée dans Mes voix : Principale ou Secours quand tu veux."
         )
+
+    # --- voix principale / voix de secours : chacune ses réglages ------------------------------
+
+    def assign_voice(self, slot: str, key: str) -> None:
+        """Bibliothèque → « Principale » / « Secours » : la voix (et ses réglages si c'est une
+        de Mes voix) devient celle de l'emplacement. L'autre emplacement ne bouge pas."""
+        from alicia.core.audio.custom_voices import backup_changes, get_custom, main_changes
+        from alicia.ui.voice_panel import voice_label
+
+        engine, _, name = key.partition("|")
+        changes: dict[str, object]
+        if engine == "custom":
+            custom = get_custom(name)
+            if custom is None:
+                return
+            changes = main_changes(custom) if slot == "main" else backup_changes(custom)
+            label = custom.name
+        else:
+            label = voice_label(engine, name).split(" — ")[0]
+            if slot == "main":
+                field = {
+                    "edge": "tts_voice",
+                    "gemini": "gemini_voice",
+                    "openai": "openai_voice",
+                    "kokoro": "kokoro_voice",
+                }
+                changes = {
+                    "tts_engine": engine,
+                    "voice_name": "",
+                    "voice_effect": "",
+                    "voice_style": "",
+                    "fx_pitch": 0.0,
+                    "fx_metal": 0,
+                    "fx_bright": 50,
+                    "fx_reverb": 0,
+                }
+                if engine in field and name:
+                    changes[field[engine]] = name
+            else:
+                changes = {
+                    "backup_voice": f"{engine}:{name}",
+                    "backup_name": "",
+                    "backup_style": "",
+                    "backup_pitch": 0.0,
+                    "backup_metal": 0,
+                    "backup_bright": 50,
+                    "backup_reverb": 0,
+                }
+        self._update_voice(**changes)
+        self._load_settings_page()
+        which = "Voix principale" if slot == "main" else "Voix de secours"
+        self._notify(f"{which} : {label}")
+        self.settings_page.gallery_state.setText(f"✓ {which} : {label}")
+
+    _SLOT_FIELDS = {
+        "main": {
+            "pitch": "fx_pitch",
+            "metal": "fx_metal",
+            "bright": "fx_bright",
+            "reverb": "fx_reverb",
+            "volume": "volume",
+            "style": "voice_style",
+        },
+        "backup": {
+            "pitch": "backup_pitch",
+            "metal": "backup_metal",
+            "bright": "backup_bright",
+            "reverb": "backup_reverb",
+            "volume": "backup_volume",
+            "style": "backup_style",
+        },
+    }
+
+    def tune_voice(self, slot: str, name: str, value: object) -> None:
+        """✎ Modifier : un réglage de la voix principale OU de secours (jamais les deux)."""
+        if slot not in self._SLOT_FIELDS:
+            return
+        changes: dict[str, object] = {}
+        if name == "pitch":
+            value = int(value) / 2  # type: ignore[call-overload]
+        elif name == "style":
+            value = " ".join(str(value or "").split())[:300]
+        elif name in ("metal", "bright", "reverb", "volume", "rate"):
+            value = int(value)  # type: ignore[call-overload]
+        if name == "rate":
+            percent = int(value)  # type: ignore[call-overload]
+            if slot == "main":
+                changes = {
+                    "tts_rate": f"{percent:+d}%",
+                    "kokoro_speed": round(1 + percent / 100, 2),
+                }
+            else:
+                changes = {"backup_rate": f"{percent:+d}%"}
+        elif name in self._SLOT_FIELDS[slot]:
+            changes = {self._SLOT_FIELDS[slot][name]: value}
+        if changes and slot == "main":
+            changes["voice_effect"] = ""  # l'ancien effet tout fait ne se mêle plus aux réglages
+        if changes:
+            self._update_voice(**changes)
+            self.settings_page.voice_panel.load(self.services.settings.voice)
+
+    def reset_slot(self, slot: str) -> None:
+        if slot == "main":
+            self._update_voice(
+                voice_effect="",
+                voice_style="",
+                fx_pitch=0.0,
+                fx_metal=0,
+                fx_bright=50,
+                fx_reverb=0,
+                volume=100,
+                tts_rate="+0%",
+                kokoro_speed=1.0,
+            )
+        elif slot == "backup":
+            self._update_voice(
+                backup_style="",
+                backup_pitch=0.0,
+                backup_metal=0,
+                backup_bright=50,
+                backup_reverb=0,
+                backup_volume=100,
+                backup_rate="+0%",
+            )
+        self.settings_page.voice_panel.load(self.services.settings.voice)
+
+    def preview_slot(self, slot: str) -> None:
+        """▶ Écouter d'une carte : exactement ce qu'on entendra en jeu (voix, réglages, volume),
+        sans passer par le secours (sinon on n'entendrait pas la bonne voix)."""
+        from alicia.core.audio.speaker import backup_synthesizer, primary_synthesizer
+        from alicia.ui.voice_panel import describe, slot_values
+
+        voice = self.services.settings.voice
+        values = slot_values(voice, slot)
+        if not self._voice_ready(str(values["engine"])):
+            return
+        synth = primary_synthesizer(voice) if slot == "main" else backup_synthesizer(voice)
+        self._play_sample(synth, describe(values)[0])
+
+    def slot_to_library(self, slot: str) -> None:
+        """« Garder dans Mes voix » : une copie de la voix de l'emplacement et de ses réglages."""
+        from alicia.core.audio.custom_voices import CustomVoice, save_custom
+        from alicia.ui.voice_panel import describe, slot_values
+
+        values = slot_values(self.services.settings.voice, slot)
+        engine = str(values["engine"])
+        if engine not in ("edge", "gemini", "openai", "kokoro") or not values["voice"]:
+            self._notify("Voix intégrée : elle est déjà toujours disponible.")
+            return
+        saved = save_custom(
+            CustomVoice(
+                id="",
+                name=describe(values)[0],
+                engine=engine,
+                voice=str(values["voice"]),
+                pitch=int(values["pitch"]) / 2,  # type: ignore[call-overload]
+                metal=int(values["metal"]),  # type: ignore[call-overload]
+                bright=int(values["bright"]),  # type: ignore[call-overload]
+                reverb=int(values["reverb"]),  # type: ignore[call-overload]
+                style=str(values["style"]),
+                rate=int(values["rate"]),  # type: ignore[call-overload]
+                volume=int(values["volume"]),  # type: ignore[call-overload]
+            )
+        )
+        self.settings_page.fill_custom_voices()
+        self.settings_page.gallery_state.setText(f"💾 « {saved.name} » gardée dans Mes voix.")
 
     def save_voice_key(self, provider: str, key: str) -> None:
         """Clé dédiée à la voix (Gemini ou OpenAI), rangée dans le .env ; jamais journalisée."""

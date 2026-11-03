@@ -196,6 +196,17 @@ class VoiceSettings:
     fx_metal: int = 0  # effet : timbre métallique de robot (0-100 %)
     fx_bright: int = 50  # effet : clarté (0-100 %, 50 = neutre)
     fx_reverb: int = 0  # effet : réverbération (0-100 %)
+    voice_name: str = ""  # nom affiché de la voix principale (« VIIRUS (byR) »), vide = auto
+    # Voix de secours : SES propres réglages, indépendants de la voix principale
+    backup_enabled: bool = True
+    backup_name: str = ""
+    backup_rate: str = "+0%"
+    backup_volume: int = 100
+    backup_pitch: float = 0.0
+    backup_metal: int = 0
+    backup_bright: int = 50
+    backup_reverb: int = 0
+    backup_style: str = ""
     gemini_tts_model: str = "gemini-3.1-flash-tts-preview"
     gemini_key: Secret = field(default_factory=lambda: Secret(None))  # même clé que l'IA Gemini
 
@@ -436,7 +447,28 @@ def _fx(voice: dict) -> dict:  # type: ignore[type-arg]
         reverb = int(voice.get("fx_reverb", 0))
     except (TypeError, ValueError):
         reverb = 0
+
+    def number(key: str, kind: type, default: float, low: float, high: float):  # type: ignore[no-untyped-def]
+        try:
+            value = kind(voice.get(key, default))
+        except (TypeError, ValueError):
+            value = kind(default)
+        return max(kind(low), min(kind(high), value))
+
+    rate = str(voice.get("backup_rate", "+0%")).strip()
+    if not re.fullmatch(r"[+-]\d{1,3}%", rate):
+        rate = "+0%"
     return {
+        "backup_enabled": bool(voice.get("backup_enabled", True)),
+        "backup_name": " ".join(str(voice.get("backup_name", "")).split())[:60],
+        "backup_rate": rate,
+        "backup_volume": number("backup_volume", int, 100, 0, 200),
+        "backup_pitch": round(number("backup_pitch", float, 0.0, -6.0, 6.0) * 2) / 2,
+        "backup_metal": number("backup_metal", int, 0, 0, 100),
+        "backup_bright": number("backup_bright", int, 50, 0, 100),
+        "backup_reverb": number("backup_reverb", int, 0, 0, 100),
+        "backup_style": " ".join(str(voice.get("backup_style", "")).split())[:300],
+        "voice_name": " ".join(str(voice.get("voice_name", "")).split())[:60],
         "fx_pitch": max(-6.0, min(6.0, round(pitch * 2) / 2)),
         "fx_metal": max(0, min(100, metal)),
         "fx_bright": max(0, min(100, bright)),

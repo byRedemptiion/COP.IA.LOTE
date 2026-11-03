@@ -80,22 +80,24 @@ def test_gallery_previews_without_choosing_then_chooses(qt_app, tmp_path, monkey
     window = MainWindow(build_services(settings, demo=True, speaker=speaker))
     try:
         page = window.settings_page
-        assert len(page.gallery_buttons) == 13 + 30 + 13
+        page.voice_panel.refresh_library()
+        buttons = page.voice_panel.main_buttons
+        assert len(buttons) == 13 + 30 + 13 + 2  # Edge, Gemini, ChatGPT, intégrées
         before = window.services.settings.voice.tts_engine
         window.change_setting("voice_preview", "edge|fr-FR-EloiseNeural")
         assert speaker.said and callable(speaker.said[-1][1])  # voix d'essai, pas la sienne
         assert window.services.settings.voice.tts_engine == before  # rien n'est changé
 
-        window.change_setting("voice_choose", "gemini|Leda")
+        buttons["gemini|Leda"].click()
         voice = window.services.settings.voice
         assert voice.tts_engine == "gemini" and voice.gemini_voice == "Leda"
-        assert page.gallery_buttons["gemini|Leda"].text() == "✓ Principale"
+        assert buttons["gemini|Leda"].text() == "✓ Principale"
         saved = tomllib.loads((data_dir() / "alicia.toml").read_text("utf-8"))
         assert saved["voice"]["tts_engine"] == "gemini" and saved["voice"]["gemini_voice"] == "Leda"
 
-        window.change_setting("voice_choose", "edge|fr-FR-HenriNeural")
+        buttons["edge|fr-FR-HenriNeural"].click()
         assert window.services.settings.voice.tts_voice == "fr-FR-HenriNeural"
-        assert page.gallery_buttons["gemini|Leda"].text() == "Principale"
+        assert buttons["gemini|Leda"].text() == "Principale"
     finally:
         window.close()
 
@@ -130,7 +132,7 @@ def test_edge_effect_slows_the_voice_before_raising_it(monkeypatch):
         tts_engine="edge", tts_rate="+0%", voice_effect="robot_enfant", fx_pitch=6.0
     )
     speaker_module.make_synthesizer(settings)("x")
-    assert rates == ["-29%"]  # 2^(6/12) ≈ 1,41 → ralentie de 29 %
+    assert rates[0] == "-29%"  # 2^(6/12) ≈ 1,41 → ralentie de 29 % (puis le secours)
 
 
 def test_gemini_gets_the_style_of_the_effect(monkeypatch):
@@ -162,7 +164,9 @@ def test_voice_volume(qt_app, tmp_path, monkeypatch):
         build_services(settings, demo=True, speaker=RecordingSpeaker(settings.voice))
     )
     try:
-        window.settings_page.volume.setValue(140)
+        panel = window.settings_page.voice_panel
+        panel.open_editor("main")
+        panel.editor.rows["volume"][0].setValue(140)
         assert window.services.settings.voice.volume == 140
         assert window.services.speaker.settings.volume == 140
         saved = tomllib.loads((data_dir() / "alicia.toml").read_text("utf-8"))
@@ -182,8 +186,9 @@ def test_openai_voices_are_in_the_catalogue_and_choosable(qt_app, tmp_path, monk
     )
     try:
         window.show_page(2)
-        assert "openai|onyx" in window.settings_page.gallery_buttons
-        window.change_setting("voice_choose", "openai|onyx")
+        panel = window.settings_page.voice_panel
+        panel.refresh_library()
+        panel.main_buttons["openai|onyx"].click()
         voice = window.services.settings.voice
         assert voice.tts_engine == "openai" and voice.openai_voice == "onyx"
     finally:
@@ -244,88 +249,127 @@ def test_bottom_voice_list_follows_the_catalogue(qt_app, tmp_path, monkeypatch):
         window.close()
 
 
-def test_catalogue_can_choose_the_backup_voice(qt_app, tmp_path, monkeypatch):
-    from alicia.app import build_services
-    from alicia.core.config import load_settings
+def test_main_and_backup_voices_each_keep_their_own_settings(qt_app, tmp_path, monkeypatch):
     from alicia.ui.main_window import MainWindow
 
     monkeypatch.chdir(tmp_path)
-    window = MainWindow(
-        build_services(load_settings(environ={"ALICE_AI_PROVIDER": "fake"}), demo=True)
-    )
-    page = window.settings_page
+    settings = load_settings(environ={"ALICE_AI_PROVIDER": "fake", "GEMINI_API_KEY": "k"})
+    speaker = RecordingSpeaker(settings.voice)
+    window = MainWindow(build_services(settings, demo=True, speaker=speaker))
+    panel = window.settings_page.voice_panel
     try:
-        window.show_page(2)
-        window.change_setting("voice_choose", "gemini|Kore")
-        assert "Principale" in page.voice_summary.text() and "Kore" in page.voice_summary.text()
-        assert page.backup_buttons["edge|fr-FR-HenriNeural"].text() == "Secours"
-        page.backup_buttons["edge|fr-FR-HenriNeural"].click()
+        window.show_page(2, "profile")
+        panel.refresh_library()
+        panel.main_buttons["gemini|Kore"].click()
+        panel.backup_buttons["edge|fr-FR-HenriNeural"].click()
         voice = window.services.settings.voice
+        assert (voice.tts_engine, voice.gemini_voice) == ("gemini", "Kore")
         assert voice.backup_voice == "edge:fr-FR-HenriNeural"
-        assert voice.tts_engine == "gemini" and voice.gemini_voice == "Kore"  # inchangée
-        assert page.backup_buttons["edge|fr-FR-HenriNeural"].text() == "✓ Secours"
-        assert "Henri" in page.voice_summary.text()
-        assert page.backup_engine_box.currentData() == "edge"  # les listes suivent
-        assert page.main_buttons["gemini|Kore"].text() == "✓ Principale"
+        assert panel.backup_buttons["edge|fr-FR-HenriNeural"].text() == "✓ Secours"
+        assert panel.main_buttons["gemini|Kore"].text() == "✓ Principale"
+        assert "Kore" in panel.cards["main"].name.text()
+        assert "Henri" in panel.cards["backup"].name.text()
+        # ✎ Modifier la voix de secours : la principale ne bouge pas
+        panel.cards["backup"].edit.click()
+        assert panel.editing == "backup"
+        rows = panel.editor.rows
+        assert not rows["style"][0].isEnabled()  # Edge : pas de jeu de voix (et c'est dit)
+        assert "Edge" in rows["style"][3].text()
+        rows["pitch"][0].setValue(-4)
+        rows["reverb"][0].setValue(30)
+        rows["volume"][0].setValue(80)
+        rows["rate"][0].setValue(10)
+        voice = window.services.settings.voice
+        assert (voice.backup_pitch, voice.backup_reverb, voice.backup_volume) == (-2.0, 30, 80)
+        assert voice.backup_rate == "+10%"
+        assert (voice.fx_pitch, voice.fx_reverb, voice.volume) == (0.0, 0, 100)
+        # ✎ Modifier la principale : le secours ne bouge pas
+        panel.cards["main"].edit.click()
+        assert panel.editing == "main" and rows["style"][0].isEnabled()  # Gemini : natif
+        rows["metal"][0].setValue(40)
+        rows["style"][0].setText("petit robot espiègle")
+        rows["style"][0].editingFinished.emit()
+        voice = window.services.settings.voice
+        assert voice.fx_metal == 40 and voice.voice_style == "petit robot espiègle"
+        assert voice.backup_metal == 0 and voice.backup_style == ""
+        # gardé au prochain lancement
+        reloaded = load_settings(environ={"ALICE_AI_PROVIDER": "fake"}).voice
+        assert (reloaded.backup_pitch, reloaded.backup_volume, reloaded.fx_metal) == (-2.0, 80, 40)
+        # ▶ Écouter de chaque carte : sa propre voix
+        window.change_setting("slot_preview", "backup")
+        window.change_setting("slot_preview", "main")
+        assert len(speaker.said) == 2 and all(callable(s) for _t, s in speaker.said)
+        # Secours désactivé
+        panel.cards["backup"].enabled.setChecked(False)
+        assert window.services.settings.voice.backup_enabled is False
+        assert "Désactivée" in panel.cards["backup"].status.text()
+        # Garder la principale dans Mes voix
+        window.change_setting("slot_to_library", "main")
+        from alicia.core.audio.custom_voices import load_custom
+
+        (kept,) = load_custom()
+        assert kept.engine == "gemini" and kept.metal == 40 and kept.style == "petit robot espiègle"
     finally:
         window.close()
 
 
 def test_my_voices_any_engine_with_fine_tuning(qt_app, tmp_path, monkeypatch):
-    from alicia.app import build_services
     from alicia.core.audio.custom_voices import load_custom
-    from alicia.core.config import load_settings
     from alicia.ui.main_window import MainWindow
 
     monkeypatch.chdir(tmp_path)
     settings = load_settings(environ={"ALICE_AI_PROVIDER": "fake"})
     speaker = RecordingSpeaker(settings.voice)
     window = MainWindow(build_services(settings, demo=True, speaker=speaker))
-    page = window.settings_page
+    panel = window.settings_page.voice_panel
     try:
         window.show_page(2)
-        assert page.gallery_sections["designed"].toggle.isChecked()  # ouverte d'office
-        # Créateur : une voix Edge + hauteur, métal, réverbération
-        page.cv_engine.setCurrentIndex(page.cv_engine.findData("edge"))
-        page.cv_voice.setCurrentIndex(page.cv_voice.findData("fr-FR-HenriNeural"))
-        page.cv_sliders["pitch"][0].setValue(-4)
-        page.cv_sliders["metal"][0].setValue(30)
-        page.cv_sliders["reverb"][0].setValue(40)
-        page.cv_name.setText("Henri caverne")
-        window.change_setting("custom_preview", page.custom_draft())
+        panel.create_button.setChecked(True)  # Bibliothèque → Créer une voix
+        panel.cv_engine.setCurrentIndex(panel.cv_engine.findData("edge"))
+        panel.cv_voice.setCurrentIndex(panel.cv_voice.findData("fr-FR-HenriNeural"))
+        rows = panel.cv_editor.rows
+        rows["pitch"][0].setValue(-4)
+        rows["metal"][0].setValue(30)
+        rows["reverb"][0].setValue(40)
+        rows["rate"][0].setValue(-10)
+        panel.cv_name.setText("Henri caverne")
+        window.change_setting("custom_preview", panel.custom_draft())
         assert speaker.said and callable(speaker.said[-1][1])  # écoute d'essai
         assert window.services.settings.voice.fx_reverb == 0  # rien n'est changé
-        page._cv_save()
+        panel._cv_save("backup")  # 💾 + Voix de secours
         (saved,) = load_custom()
         assert (saved.name, saved.engine, saved.voice) == (
             "Henri caverne",
             "edge",
             "fr-FR-HenriNeural",
         )
-        assert (saved.pitch, saved.metal, saved.reverb) == (-2.0, 30, 40)
+        assert (saved.pitch, saved.metal, saved.reverb, saved.rate) == (-2.0, 30, 40, -10)
+        voice = window.services.settings.voice
+        assert (
+            voice.backup_voice == "edge:fr-FR-HenriNeural" and voice.backup_name == "Henri caverne"
+        )
+        assert (voice.backup_pitch, voice.backup_reverb, voice.backup_rate) == (-2.0, 40, "-10%")
+        assert voice.fx_pitch == 0.0  # la principale ne bouge pas
         key = f"custom|{saved.id}"
-        # Principale
-        page.main_buttons[key].click()
+        panel.refresh_library()
+        assert panel.backup_buttons[key].text() == "✓ Secours"
+        panel.main_buttons[key].click()
         voice = window.services.settings.voice
         assert voice.tts_engine == "edge" and voice.tts_voice == "fr-FR-HenriNeural"
         assert (voice.fx_pitch, voice.fx_metal, voice.fx_reverb) == (-2.0, 30, 40)
-        assert page.main_buttons[key].text() == "✓ Principale"
-        assert "Henri caverne" in page.voice_summary.text()
-        # Secours
-        page.backup_buttons[key].click()
-        assert window.services.settings.voice.backup_voice == f"custom:{saved.id}"
-        assert page.backup_buttons[key].text() == "✓ Secours"
-        # Retouche : enregistrée sous le même nom, sa voix principale suit
-        page.edit_custom(saved.id)
-        page.cv_sliders["reverb"][0].setValue(10)
-        page._cv_save()
-        assert len(load_custom()) == 1 and window.services.settings.voice.fx_reverb == 10
-        # Une voix du catalogue telle quelle : sans réglages
-        window.change_setting("voice_choose", "edge|fr-FR-DeniseNeural")
+        assert panel.cards["main"].name.text() == "Henri caverne"
+        # Retouche dans Mes voix : les voix déjà choisies gardent leurs réglages (copies)
+        panel.edit_custom(saved.id)
+        rows["reverb"][0].setValue(10)
+        panel._cv_save("")
+        assert len(load_custom()) == 1 and load_custom()[0].reverb == 10
+        assert window.services.settings.voice.fx_reverb == 40
+        # Une voix de la bibliothèque telle quelle : sans réglages
+        panel.main_buttons["edge|fr-FR-DeniseNeural"].click()
         voice = window.services.settings.voice
         assert voice.fx_pitch == 0 and voice.fx_reverb == 0 and voice.fx_metal == 0
         window.change_setting("custom_delete", saved.id)
-        assert not load_custom() and window.services.settings.voice.backup_voice.startswith("edge:")
+        assert not load_custom()
     finally:
         window.close()
 
@@ -333,7 +377,7 @@ def test_my_voices_any_engine_with_fine_tuning(qt_app, tmp_path, monkeypatch):
 def test_custom_backup_voice_keeps_its_settings(monkeypatch):
     from alicia.core.audio.custom_voices import CustomVoice, save_custom
 
-    custom = save_custom(CustomVoice("", "Grave", "edge", "fr-FR-HenriNeural", reverb=50))
+    custom = save_custom(CustomVoice("", "Grave", "edge", "fr-FR-HenriNeural", reverb=50))  # v0.17
     calls = []
 
     def edge(voice, rate):

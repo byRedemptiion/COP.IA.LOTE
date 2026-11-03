@@ -17,7 +17,7 @@ from alicia.core.config import VoiceSettings
 
 log = logging.getLogger("alicia.audio")
 
-ENGINES = ("edge", "gemini", "openai")
+ENGINES = ("edge", "gemini", "openai", "kokoro")
 MAX_VOICES = 60
 _path: Path | None = None
 
@@ -33,6 +33,8 @@ class CustomVoice:
     bright: int = 50  # % (50 = neutre)
     reverb: int = 0  # %
     style: str = ""  # jeu de voix (Gemini, ChatGPT)
+    rate: int = 0  # vitesse en % (-50 à +100)
+    volume: int = 100  # %
 
     def clamped(self) -> CustomVoice:
         return replace(
@@ -43,6 +45,8 @@ class CustomVoice:
             bright=max(0, min(100, int(self.bright))),
             reverb=max(0, min(100, int(self.reverb))),
             style=" ".join(self.style.split())[:300],
+            rate=max(-50, min(100, int(self.rate))),
+            volume=max(0, min(200, int(self.volume))),
         )
 
 
@@ -78,6 +82,8 @@ def load_custom() -> list[CustomVoice]:
                 bright=int(item.get("bright", 50)),
                 reverb=int(item.get("reverb", 0)),
                 style=str(item.get("style", "")),
+                rate=int(item.get("rate", 0)),
+                volume=int(item.get("volume", 100)),
             )
         except (KeyError, TypeError, ValueError):
             continue
@@ -129,16 +135,38 @@ def voice_settings(settings: VoiceSettings, voice: CustomVoice) -> VoiceSettings
 
 def main_changes(voice: CustomVoice) -> dict[str, object]:
     """Ce qui change dans les réglages quand on la choisit en voix principale."""
-    field = {"gemini": "gemini_voice", "openai": "openai_voice"}.get(voice.engine, "tts_voice")
+    field = {"gemini": "gemini_voice", "openai": "openai_voice", "kokoro": "kokoro_voice"}.get(
+        voice.engine, "tts_voice"
+    )
     return {
         "tts_engine": voice.engine,
         field: voice.voice,
+        "voice_name": voice.name,
         "voice_effect": "",
         "voice_style": voice.style,
+        "tts_rate": f"{voice.rate:+d}%",
+        "kokoro_speed": round(1 + voice.rate / 100, 2),
+        "volume": voice.volume,
         "fx_pitch": voice.pitch,
         "fx_metal": voice.metal,
         "fx_bright": voice.bright,
         "fx_reverb": voice.reverb,
+    }
+
+
+def backup_changes(voice: CustomVoice) -> dict[str, object]:
+    """Ce qui change dans les réglages quand on la choisit en voix de secours (une copie :
+    la retoucher ensuite ne change pas « Mes voix », et inversement)."""
+    return {
+        "backup_voice": f"{voice.engine}:{voice.voice}",
+        "backup_name": voice.name,
+        "backup_rate": f"{voice.rate:+d}%",
+        "backup_volume": voice.volume,
+        "backup_pitch": voice.pitch,
+        "backup_metal": voice.metal,
+        "backup_bright": voice.bright,
+        "backup_reverb": voice.reverb,
+        "backup_style": voice.style,
     }
 
 
@@ -148,10 +176,13 @@ def matches(settings: VoiceSettings, voice: CustomVoice) -> bool:
         "edge": settings.tts_voice,
         "gemini": settings.gemini_voice,
         "openai": settings.openai_voice,
+        "kokoro": settings.kokoro_voice,
     }.get(settings.tts_engine)
     return (
         settings.tts_engine == voice.engine
         and current == voice.voice
+        and settings.tts_rate == f"{voice.rate:+d}%"
+        and settings.volume == voice.volume
         and abs(settings.fx_pitch - voice.pitch) < 0.01
         and settings.fx_metal == voice.metal
         and settings.fx_bright == voice.bright
@@ -193,5 +224,14 @@ def migrate(settings: VoiceSettings) -> CustomVoice | None:
             bright=settings.fx_bright,
             reverb=settings.fx_reverb,
             style=settings.voice_style,
+            rate=_percent(settings.tts_rate),
+            volume=settings.volume,
         )
     )
+
+
+def _percent(rate: str) -> int:
+    try:
+        return int(rate.strip().rstrip("%"))
+    except ValueError:
+        return 0

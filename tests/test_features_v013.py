@@ -373,9 +373,8 @@ def test_backup_voice_can_be_chatgpt_or_gemini(qt_app, tmp_path, monkeypatch):
     try:
         window.show_page(2, "profile")
         page = window.settings_page
-        page.backup_engine_box.setCurrentIndex(page.backup_engine_box.findData("openai"))
-        assert page.backup_voice_box.findData("coral") >= 0  # la 2e liste s'adapte
-        page.backup_voice_box.setCurrentIndex(page.backup_voice_box.findData("nova"))
+        page.voice_panel.refresh_library()
+        page.voice_panel.backup_buttons["openai|nova"].click()  # Bibliothèque → Secours
         assert window.services.settings.voice.backup_voice == "openai:nova"
     finally:
         window.close()

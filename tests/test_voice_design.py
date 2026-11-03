@@ -106,9 +106,9 @@ def test_window_creates_and_lists_a_designed_voice(qt_app, tmp_path, monkeypatch
         window.change_setting("voice_design", ("VIIRUS garçon", "petit garçon de 9 ans"))
         page = window.settings_page
         _wait(qt_app, lambda: "créée" in page.design_state.text())
-        assert "gemini|voice_xyz" in page.gallery_buttons
-        assert page.gemini_voice_box.findData("voice_xyz") >= 0  # aussi dans Profil → Voix
-        window.change_setting("voice_choose", "gemini|voice_xyz")
+        page.voice_panel.refresh_library()
+        assert "gemini|voice_xyz" in page.voice_panel.main_buttons  # dans la bibliothèque
+        page.voice_panel.main_buttons["gemini|voice_xyz"].click()
         assert window.services.settings.voice.gemini_voice == "voice_xyz"
         assert window.services.settings.voice.tts_engine == "gemini"
     finally:
@@ -160,23 +160,27 @@ def test_blocked_sentence_uses_backup_voice_without_pause(monkeypatch):
     assert calls and backup == ["phrase refusée"]
 
 
-def test_designed_voices_get_no_sound_effect(monkeypatch):
+def test_designed_voices_keep_their_own_settings_and_backup_its_own(monkeypatch):
     from alicia.core.audio import speaker
     from alicia.core.config import Secret, VoiceSettings
 
     calls = []
-    monkeypatch.setattr(speaker, "with_fx", lambda *a, **k: calls.append(a) or a[0])
+    real = speaker.with_fx
+    monkeypatch.setattr(speaker, "with_fx", lambda *a, **k: calls.append(a[1:5]) or real(*a, **k))
     settings = VoiceSettings(
         tts_engine="gemini",
         gemini_voice="voice_abc",
         gemini_key=Secret("k"),
-        voice_effect="enfant",
-        fx_pitch=2.5,
+        backup_voice="edge:fr-FR-HenriNeural",
+        backup_pitch=-2.0,
+        backup_reverb=30,
     )
     speaker.make_synthesizer(settings)
-    assert calls == []  # voix sur mesure : jamais d'effet sonore
+    # la voix générée telle quelle (aucun réglage) ; le secours avec SES réglages
+    assert (0.0, 0, 50, 0) in calls and (-2.0, 0, 50, 30) in calls
+    calls.clear()
     speaker.make_synthesizer(VoiceSettings(tts_engine="gemini", gemini_voice="Puck", fx_pitch=2.5))
-    assert len(calls) == 1
+    assert calls[0] == (2.5, 0, 50, 0)  # les réglages de la principale
 
 
 def test_rename_and_delete_designed_voices(qt_app, tmp_path, monkeypatch):
@@ -203,7 +207,8 @@ def test_rename_and_delete_designed_voices(qt_app, tmp_path, monkeypatch):
         window.delete_designed_voice("voice_b", confirm=False)
         assert [v.id for v in voice_design.load_voices(store)] == ["voice_a"]
         assert window.services.settings.voice.gemini_voice == "Puck"  # c'était la voix choisie
-        assert window.settings_page.gemini_voice_box.findData("voice_b") < 0
+        window.settings_page.voice_panel.refresh_library()
+        assert "gemini|voice_b" not in window.settings_page.voice_panel.main_buttons
         from tests.test_duo import _wait
 
         _wait(qt_app, lambda: deleted)
@@ -215,12 +220,12 @@ def test_rename_and_delete_designed_voices(qt_app, tmp_path, monkeypatch):
 def test_old_effect_setting_becomes_slider_values(tmp_path):
     from alicia.core.config import _fx
 
-    assert _fx({"voice_effect": "robot_enfant"}) == {
+    assert {
         "fx_pitch": 4.5,
         "fx_metal": 50,
         "fx_bright": 60,
         "fx_reverb": 0,
-    }
+    }.items() <= _fx({"voice_effect": "robot_enfant"}).items()
     assert _fx({"voice_effect": "enfant", "fx_pitch": 9, "fx_metal": "x"})["fx_pitch"] == 6.0
     assert _fx({})["fx_pitch"] == 0.0
 

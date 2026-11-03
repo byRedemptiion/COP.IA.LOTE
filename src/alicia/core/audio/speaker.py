@@ -123,14 +123,8 @@ def openai_synthesizer(settings: VoiceSettings, fallback: bool = True) -> Synthe
     """Voix OpenAI (API audio/speech) : très naturelle, payante à l'usage."""
     import httpx
 
-    percent = 0
-    try:
-        percent = int(settings.tts_rate.strip().rstrip("%"))
-    except ValueError:
-        pass
-    pace = (
-        "" if abs(percent) < 5 else (" Parle un peu vite." if percent > 0 else " Parle posément.")
-    )
+    # gpt-4o-mini-tts ignore son paramètre « speed » : la vitesse passe par la consigne.
+    pace = pace_hint(settings.tts_rate)
 
     def synthesize(text: str) -> np.ndarray:
         if not settings.openai_key:
@@ -157,7 +151,7 @@ def openai_synthesizer(settings: VoiceSettings, fallback: bool = True) -> Synthe
                         else ""
                     )
                     + (f" Voix et jeu : {settings.voice_style}." if settings.voice_style else "")
-                    + pace,
+                    + (f" Parle {pace}." if pace else ""),
                     "response_format": "pcm",  # 24 kHz, 16 bits, mono
                 },
                 timeout=30,
@@ -264,13 +258,32 @@ GEMINI_TTS_URL = "https://generativelanguage.googleapis.com/v1beta/models/{model
 GEMINI_VOICE_STYLE = "Dis en français, d'un ton naturel et vivant de coéquipier de jeu : "
 
 
+def pace_hint(rate: str) -> str:
+    """Vitesse demandée par consigne (Gemini, ChatGPT : pas de réglage de débit chez eux)."""
+    try:
+        percent = int(rate.strip().rstrip("%"))
+    except ValueError:
+        return ""
+    if percent >= 25:
+        return "vite, avec un débit rapide"
+    if percent >= 10:
+        return "un peu plus vite que d'habitude"
+    if percent <= -25:
+        return "lentement, en prenant ton temps"
+    if percent <= -10:
+        return "posément, un peu plus lentement"
+    return ""
+
+
 def _gemini_style(settings: VoiceSettings) -> str:
+    pace = pace_hint(settings.tts_rate)
+    pace = f", {pace}" if pace else ""
     if settings.voice_style:  # consigne libre écrite par le joueur
-        return f"Dis en français, {settings.voice_style} : "
+        return f"Dis en français, {settings.voice_style}{pace} : "
     effect = VOICE_EFFECTS.get(settings.voice_effect)
     if effect is None:
-        return GEMINI_VOICE_STYLE
-    return f"Dis en français, {effect[4]} : "
+        return GEMINI_VOICE_STYLE[:-3] + pace + " : " if pace else GEMINI_VOICE_STYLE
+    return f"Dis en français, {effect[4]}{pace} : "
 
 
 def gemini_synthesizer(settings: VoiceSettings, fallback: bool = True) -> Synthesizer:
@@ -279,9 +292,15 @@ def gemini_synthesizer(settings: VoiceSettings, fallback: bool = True) -> Synthe
 
     import httpx
 
-    if settings.gemini_voice.startswith("voice_"):  # voix sur mesure (Gemini 3.8)
-        return _designed(settings)
     from alicia.core.audio import voice_design
+
+    if settings.gemini_voice.startswith("voice_"):  # voix générée (Gemini 3.8)
+        designed = voice_design.designed_synthesizer(
+            settings.gemini_key.get() or "", settings.gemini_voice, _designed_style(settings)
+        )
+        if not settings.gemini_key or not fallback:
+            return designed
+        return voice_design.with_fallback(designed, _profile_fallback(settings))
 
     def synthesize(text: str) -> np.ndarray:
         if not settings.gemini_key:
@@ -359,7 +378,20 @@ def _local_fallback(settings: VoiceSettings) -> Synthesizer:
     return veris_synthesizer(settings.kokoro_speed, 1.30, 220.0, 3800.0, metallic=0.0)
 
 
-BACKUP_ENGINES = ("local", "edge", "gemini", "openai", "custom")  # custom : « Mes voix »
+# « local » : la voix robot du profil ; veris / voixc : une voix intégrée précise
+BACKUP_ENGINES = ("local", "edge", "gemini", "openai", "kokoro", "veris", "voixc", "custom")
+LOCAL_ENGINES = ("veris", "voixc", "local")  # voix intégrées : gardées telles quelles
+
+# Dernière phrase dite par la voix de secours (horloge monotone) : « en cours d'utilisation »
+BACKUP_USED = {"t": -1e9}
+
+
+def backup_in_use(window_s: float = 120.0) -> bool:
+    """Vrai si la voix de secours parle en ce moment à la place de la principale."""
+    from alicia.core.audio import voice_design
+
+    now = time.monotonic()
+    return now - BACKUP_USED["t"] < window_s or voice_design.online_paused()
 
 
 def split_backup(value: str) -> tuple[str, str]:
@@ -372,81 +404,137 @@ def split_backup(value: str) -> tuple[str, str]:
     return "edge", value
 
 
-def _profile_fallback(settings: VoiceSettings) -> Synthesizer:
-    """Voix de secours des voix en ligne : celle choisie (Edge, Gemini ou ChatGPT), et la
-    voix locale du profil si elle ne répond pas non plus (pas d'Internet, quota…)."""
-    local = _local_fallback(settings)
+def _voice_field(engine: str) -> str:
+    return {"gemini": "gemini_voice", "openai": "openai_voice", "kokoro": "kokoro_voice"}.get(
+        engine, "tts_voice"
+    )
+
+
+def backup_settings(settings: VoiceSettings) -> VoiceSettings:
+    """Les réglages de la voix de secours, sous la forme de réglages de voix ordinaires
+    (sa voix, SA vitesse, SES effets, SON jeu de voix) : rien n'est pris à la principale."""
     engine, name = split_backup(settings.backup_voice)
-    if engine == "local" or not name:
-        return local
-    if engine == "custom":  # une de « Mes voix » (voix + réglages enregistrés)
-        from alicia.core.audio.custom_voices import get_custom, voice_settings
+    if engine == "custom":  # ancienne forme « custom:id » (v0.17) : ses réglages enregistrés
+        from alicia.core.audio.custom_voices import get_custom
 
         custom = get_custom(name)
         if custom is None:
-            return local
-        backup = backup_synthesizer(voice_settings(settings, custom))
-    elif engine == "gemini" and name.startswith("voice_"):  # voix sur mesure Gemini 3.8
-        from alicia.core.audio import voice_design
+            return replace(settings, tts_engine="local", backup_voice="")
+        engine, name = custom.engine, custom.voice
+        settings = replace(
+            settings,
+            backup_rate=f"{custom.rate:+d}%",
+            backup_pitch=custom.pitch,
+            backup_metal=custom.metal,
+            backup_bright=custom.bright,
+            backup_reverb=custom.reverb,
+            backup_style=custom.style,
+            backup_volume=custom.volume,
+        )
+    changes: dict[str, object] = {
+        "tts_engine": "local" if engine == "local" or not name else engine,
+        "tts_rate": settings.backup_rate,
+        "kokoro_speed": round(_speed(settings.backup_rate), 2),
+        "voice_effect": "",
+        "voice_style": settings.backup_style,
+        "fx_pitch": settings.backup_pitch,
+        "fx_metal": settings.backup_metal,
+        "fx_bright": settings.backup_bright,
+        "fx_reverb": settings.backup_reverb,
+        "volume": settings.backup_volume,
+    }
+    if engine not in LOCAL_ENGINES and name:
+        changes[_voice_field(engine)] = name
+    return replace(settings, **changes)  # type: ignore[arg-type]
 
-        key = settings.gemini_key.get() or ""
-        backup = voice_design.designed_synthesizer(key, name, "ton naturel et vivant")
-    elif engine == "gemini":
-        backup = gemini_synthesizer(replace(settings, gemini_voice=name), fallback=False)
-    elif engine == "openai":
-        backup = openai_synthesizer(replace(settings, openai_voice=name), fallback=False)
+
+def _speed(rate: str) -> float:
+    try:
+        return max(0.5, min(2.0, 1 + int(rate.strip().rstrip("%")) / 100))
+    except ValueError:
+        return 1.0
+
+
+def _designed_style(settings: VoiceSettings) -> str:
+    style = settings.voice_style
+    if not style:
+        effect = VOICE_EFFECTS.get(settings.voice_effect)
+        style = "ton naturel et vivant de coéquipier de jeu" if effect is None else effect[4]
+    pace = pace_hint(settings.tts_rate)
+    return f"{style}, {pace}" if pace else style
+
+
+def primary_synthesizer(settings: VoiceSettings) -> Synthesizer:
+    """La voix ``settings`` avec tous ses réglages (vitesse, hauteur, robot, clarté,
+    réverbération, jeu de voix), SANS voix de secours derrière."""
+    pitch, metal, bright = settings.fx_pitch, settings.fx_metal, settings.fx_bright
+    reverb, engine = settings.fx_reverb, settings.tts_engine
+    if engine == "veris" or (engine == "local" and _local_is_veris()):
+        return veris_synthesizer(settings.kokoro_speed)
+    if engine in ("voixc", "local"):
+        return veris_synthesizer(settings.kokoro_speed, 1.30, 220.0, 3800.0, metallic=0.0)
+    if engine == "edge":  # vitesse native ; la hauteur passe par une voix générée ralentie
+        ratio = 2 ** (pitch / 12)
+        slowed = abs(pitch) >= 0.01
+        rate = _slowed_rate(settings.tts_rate, ratio) if slowed else settings.tts_rate
+        base = edge_synthesizer(settings.tts_voice, rate)
+        return with_fx(base, pitch, metal, bright, reverb, pre_slowed=slowed)
+    if engine == "kokoro":  # vitesse native
+        base = kokoro_synthesizer(settings.kokoro_voice, settings.kokoro_speed)
+        return with_fx(base, pitch, metal, bright, reverb)
+    if engine == "openai":  # vitesse par consigne (voir pace_hint)
+        base = openai_synthesizer(settings, fallback=False)
     else:
-        backup = edge_synthesizer(name, settings.tts_rate)
+        base = gemini_synthesizer(settings, fallback=False)
+    return with_fx(base, pitch, metal, bright, reverb)
+
+
+def _local_is_veris() -> bool:
+    from alicia.core.persona import current
+
+    return current().key == "veris"
+
+
+def backup_synthesizer(settings: VoiceSettings) -> Synthesizer:
+    """La voix de secours toute seule (pour l'écouter) : ses réglages, son volume."""
+    voice = backup_settings(settings)
+    base = primary_synthesizer(voice)
+    gain = voice.volume / max(1, settings.volume)  # le haut-parleur applique déjà le volume
+    if abs(gain - 1.0) < 0.01:  # de la principale : on corrige l'écart
+        return base
 
     def synthesize(text: str) -> np.ndarray:
-        try:
-            return backup(text)
-        except AudioError as exc:
-            log.warning("Voix de secours (%s) indisponible : %s", engine, exc.detail)
-            return local(text)
+        samples = base(text).astype(np.float32) * gain
+        return np.clip(samples, -32768, 32767).astype(np.int16)
 
     return synthesize
 
 
-def backup_synthesizer(settings: VoiceSettings) -> Synthesizer:
-    """La voix ``settings`` (avec ses réglages fins) sans secours imbriqué : pour servir de
-    voix de secours elle-même."""
-    pitch, metal, bright = settings.fx_pitch, settings.fx_metal, settings.fx_bright
-    reverb = settings.fx_reverb
-    if settings.tts_engine == "gemini":
-        base = gemini_synthesizer(settings, fallback=False)
-    elif settings.tts_engine == "openai":
-        base = openai_synthesizer(settings, fallback=False)
-    else:
-        ratio = 2 ** (pitch / 12)
-        slowed = abs(pitch) >= 0.01
-        rate = _slowed_rate(settings.tts_rate, ratio) if slowed else settings.tts_rate
-        return with_fx(
-            edge_synthesizer(settings.tts_voice, rate),
-            pitch,
-            metal,
-            bright,
-            reverb,
-            pre_slowed=slowed,
-        )
-    return with_fx(base, pitch, metal, bright, reverb)
-
-
-def _designed(settings: VoiceSettings) -> Synthesizer:
-    """Voix sur mesure, avec la voix du profil en secours si Gemini ne répond pas."""
-    from alicia.core.audio import voice_design
-
-    fallback = _profile_fallback(settings)
-    if not settings.gemini_key:
-        return fallback
-    effect = VOICE_EFFECTS.get(settings.voice_effect)
-    style = "ton naturel et vivant de coéquipier de jeu" if effect is None else effect[4]
-    if settings.voice_style:
-        style = settings.voice_style
-    primary = voice_design.designed_synthesizer(
-        settings.gemini_key.get() or "", settings.gemini_voice, style
+def _no_backup(_text: str) -> np.ndarray:
+    raise AudioError(
+        "Voix principale indisponible pour l'instant, et la voix de secours est désactivée "
+        "(Profil → Voix).",
+        detail="secours désactivé",
     )
-    return voice_design.with_fallback(primary, fallback)
+
+
+def _profile_fallback(settings: VoiceSettings) -> Synthesizer:
+    """Ce qui parle quand la voix principale échoue : la voix de secours avec ses propres
+    réglages ; si elle échoue aussi, la voix robot du profil (sur le PC)."""
+    if not settings.backup_enabled:
+        return _no_backup
+    local = _local_fallback(settings)
+    backup = backup_synthesizer(settings)
+
+    def synthesize(text: str) -> np.ndarray:
+        BACKUP_USED["t"] = time.monotonic()
+        try:
+            return backup(text)
+        except AudioError as exc:
+            log.warning("Voix de secours indisponible : %s", exc.detail)
+            return local(text)
+
+    return synthesize
 
 
 # Effets de voix, applicables à Edge, Gemini, OpenAI et Kokoro :
@@ -651,37 +739,18 @@ def _slowed_rate(rate: str, ratio: float) -> str:
 
 
 def make_synthesizer(settings: VoiceSettings) -> Synthesizer:
-    pitch, metal, bright = settings.fx_pitch, settings.fx_metal, settings.fx_bright
-    reverb = settings.fx_reverb
-    designed = settings.tts_engine == "gemini" and settings.gemini_voice.startswith("voice_")
-    if (
-        not designed  # voix sur mesure : déjà faite comme on la veut, aucun effet sonore
-        and not fx_neutral(pitch, metal, bright, reverb)
-        and settings.tts_engine in ("edge", "gemini", "openai", "kokoro")
+    """La voix principale avec ses réglages, et la voix de secours derrière (voix en ligne)."""
+    primary = primary_synthesizer(settings)
+    engine = settings.tts_engine
+    if engine in ("veris", "voixc", "kokoro", "local"):
+        return primary  # sur le PC : rien qui puisse tomber en panne de quota
+    if (engine == "gemini" and not settings.gemini_key) or (
+        engine == "openai" and not settings.openai_key
     ):
-        if settings.tts_engine == "edge":
-            ratio = 2 ** (pitch / 12)
-            base = edge_synthesizer(settings.tts_voice, _slowed_rate(settings.tts_rate, ratio))
-            return with_fx(base, pitch, metal, bright, reverb, pre_slowed=abs(pitch) >= 0.01)
-        if settings.tts_engine == "gemini":
-            base = gemini_synthesizer(settings)  # l'effet choisi devient aussi une consigne
-        elif settings.tts_engine == "openai":
-            base = openai_synthesizer(settings)
-        else:
-            base = kokoro_synthesizer(settings.kokoro_voice, settings.kokoro_speed)
-        return with_fx(base, pitch, metal, bright, reverb)
-    if settings.tts_engine == "veris":
-        return veris_synthesizer(settings.kokoro_speed)
-    if settings.tts_engine == "voixc":
-        # Voix C d'ALICIA : ff_siwis, hauteur ×1,30 (formants suivis), 220 Hz / +3 dB à 3,8 kHz
-        return veris_synthesizer(settings.kokoro_speed, 1.30, 220.0, 3800.0, metallic=0.0)
-    if settings.tts_engine == "openai":
-        return openai_synthesizer(settings)
-    if settings.tts_engine == "gemini":
-        return gemini_synthesizer(settings)
-    if settings.tts_engine == "kokoro":
-        return kokoro_synthesizer(settings.kokoro_voice, settings.kokoro_speed)
-    return edge_synthesizer(settings.tts_voice, settings.tts_rate)
+        return primary  # sans clé : le message « il faut une clé » reste affiché
+    from alicia.core.audio import voice_design
+
+    return voice_design.with_fallback(primary, _profile_fallback(settings))
 
 
 class SoundDevicePlayer:
