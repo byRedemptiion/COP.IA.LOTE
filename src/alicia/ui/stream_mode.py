@@ -144,7 +144,6 @@ class StreamMode(QObject):
         icons = {"follow": "💜", "sub": "⭐", "resub": "⭐", "gift": "🎁", "cheer": "💎"}
         window.asked_label.setText(f"{icons.get(event.kind, '🚀')} TWITCH  ›  {event.user}")
         window.answer.setPlainText(text)
-        window._history(f"{window._me()} (Twitch)", text, "chat")
         if window._bubble_active():
             window.bubble.ask(f"{icons.get(event.kind, '🚀')} {event.user}")
         window._core("speaking")
@@ -271,8 +270,6 @@ class StreamMode(QObject):
         title = current_persona().title.upper()
         window.asked_label.setText(f"💬 {message.user}  ›  {message.text[:80]}")
         window.answer.setPlainText(text)
-        window._history(f"💬 {message.user}", message.text, "chat")
-        window._history(f"{title} (chat)", text, "robot")
         window._set_status(f"💬 {title} répond au chat")
         if window._bubble_active():
             window.bubble.ask(f"💬 {message.user} : {message.text[:120]}")

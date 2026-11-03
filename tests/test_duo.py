@@ -356,14 +356,23 @@ def test_history_keeps_the_whole_conversation(qt_app, tmp_path, monkeypatch):
     window._duo_received({"kind": "answer", "name": "ALICIA", "text": "Il est top !"})
     text = window.history_panel.text()
     assert "Nova arrive" in text and "Il est top" in text  # rien ne s'efface
-    window.history_panel.add("Toi", "Salut", "me")
-    window.history_panel.add("Toi", "Salut", "me")  # même ligne réaffichée : une seule fois
+    window.history_panel.add("VIIRUS → ALICIA", "Salut", "duo")
+    window.history_panel.add("VIIRUS → ALICIA", "Salut", "duo")  # réaffichée : une seule fois
     assert window.history_panel.text().count("Salut") == 1
     from alicia.core.history import History
 
     assert [line.text for line in History().lines][-1] == "Salut"  # gardé après redémarrage
+    # Tes échanges avec ton propre robot ne vont pas dans l'historique du duo
+    window.question.setText("quel objet pour Ashe ?")
+    window.analyze_or_cancel()
+    _wait(qt_app, lambda: not window.busy, seconds=3)
+    assert "Ashe" not in window.history_panel.text()
     window.history_panel.clear()
     assert not History().lines
+    assert History().font_size == 9  # texte plus petit par défaut
+    box = window.history_panel.size_box
+    box.setCurrentIndex(box.findData(12))
+    assert History().font_size == 12 and "12pt" in window.history_panel.view.styleSheet()
     window.toggle_history(False)
     assert not window.history_panel.isVisible()
     window.duo_link = None

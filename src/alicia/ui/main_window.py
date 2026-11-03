@@ -507,7 +507,7 @@ class MainWindow(QMainWindow):
         )
         right.setMinimumWidth(360)
 
-        # --- Tout à droite : historique complet (ne s'efface pas) -------------------------------
+        # --- Tout à droite : historique du duo, entre les 2 robots (ne s'efface pas) -------------------------------
         from alicia.core.history import History
         from alicia.ui.history_panel import HistoryPanel
 
@@ -561,7 +561,9 @@ class MainWindow(QMainWindow):
         self.logs_toggle.clicked.connect(self.toggle_logs)
         self.history_toggle = QPushButton("Historique ▾")
         self.history_toggle.setObjectName("ghost")
-        self.history_toggle.setToolTip("Afficher / masquer l'historique de la conversation")
+        self.history_toggle.setToolTip(
+            "Afficher / masquer l'historique du duo (ce que les deux robots se disent)"
+        )
         self.history_toggle.clicked.connect(lambda: self.toggle_history())
         footer = QHBoxLayout()
         footer.addWidget(self.logs_toggle)
@@ -846,7 +848,6 @@ class MainWindow(QMainWindow):
             self.asked_label.setText(f"📝 DÉBRIEF DE {title}  ›")
             self.answer.setPlainText(text)
             self._set_status("📝 Débrief prêt.")
-            self._history(f"{title} (débrief)", text, "robot")
             if self._bubble_active():
                 self.bubble.ask("📝 Débrief de la partie")
             self._core("speaking")
@@ -2497,7 +2498,7 @@ class MainWindow(QMainWindow):
                 threading.Thread(target=lambda: link.send("answer", **data), daemon=True).start()
             self.asked_label.setText(f"{current_persona().title.upper()} → {other.upper()}  ›")
             self.answer.setPlainText(text)
-            self._history(f"{self._me()} → {other.upper()}", text, "robot")
+            self._history(f"{self._me()} → {other.upper()}", text, "duo")
             if self._bubble_active():
                 self.bubble.ask("")
                 self.bubble.set_answer(text)
@@ -2526,7 +2527,7 @@ class MainWindow(QMainWindow):
         threading.Thread(target=lambda: link.send("relay", **data), daemon=True).start()
         # Pas de « d'accord, je transmets » à voix haute : juste la bulle et un hochement.
         self.answer.setPlainText(f"→ {other} : {text}")
-        self._history(f"{self._me()} → {other.upper()}", text, "robot")
+        self._history(f"{self._me()} → {other.upper()}", text, "duo")
         if self._bubble_active():
             self.bubble.ask("")
             self.bubble.set_answer(f"→ {other} : {text}")
@@ -2753,7 +2754,7 @@ class MainWindow(QMainWindow):
             data = {"conv": conv["id"], "turn": turn, "max": conv["max"], "text": text}
             threading.Thread(target=lambda: link.send("say", **data), daemon=True).start()
         self.answer.setPlainText(text)
-        self._history(self._me(), text, "robot")
+        self._history(self._me(), text, "duo")
         if self._bubble_active():
             self.bubble.ask("")
             self.bubble.set_answer(text)
@@ -3788,8 +3789,8 @@ class MainWindow(QMainWindow):
         self.history_panel.setVisible(visible)
         self.history_toggle.setText("Historique ▾" if visible else "Historique ▸")
 
-    def _history(self, who: str, text: str, kind: str = "robot") -> None:
-        """Ajoute une phrase à l'historique (panneau de droite, jamais effacé tout seul)."""
+    def _history(self, who: str, text: str, kind: str = "duo") -> None:
+        """Ajoute une phrase du duo à l'historique (seulement entre les deux robots)."""
         panel = getattr(self, "history_panel", None)
         if panel is not None:
             panel.add(who, text, kind)
@@ -4060,8 +4061,6 @@ class MainWindow(QMainWindow):
         self._core("thinking")
         shown = "…" if audio is not None else (question.strip() or DEFAULT_HOTKEY_QUESTION)
         self.asked_label.setText(f"TOI  ›  {shown}")
-        if audio is None:
-            self._history("Toi", shown, "me")
         if self._bubble_active():
             self.bubble.ask("🎙 …" if audio is not None else shown)
         web_search = self.web_box.isChecked()
@@ -4255,8 +4254,6 @@ class MainWindow(QMainWindow):
         reply = outcome.action
         assert reply is not None
         if reply.intent in ("duo_relay", "duo_chat"):  # « Viirus, demande à Alicia… »
-            if outcome.transcript:
-                self._history("Toi", outcome.transcript, "me")
             self._core_settle()
             if reply.intent == "duo_relay":
                 self.duo_relay(reply.text)
@@ -4297,9 +4294,6 @@ class MainWindow(QMainWindow):
             label = "COMPRIS" if outcome.transcript is not None else "TOI"
             self.asked_label.setText(f"{label}  ›  {asked}")
         self.answer.setPlainText(reply.text)
-        if outcome.transcript is not None and asked:
-            self._history("Toi", asked, "me")
-        self._history(self._me(), reply.text, "robot")
         if self._bubble_active():
             self.bubble.ask(asked)
         self.sources_label.setText("")
@@ -4546,7 +4540,6 @@ class MainWindow(QMainWindow):
         mark = "⚠" if importance >= 9 else "💡"
         self.asked_label.setText(f"{mark} {current_persona().title.upper()} (COPILOTE)  ›")
         self.answer.setPlainText(message)
-        self._history(f"{self._me()} (Copilote)", message, "copilot")
         self._set_status(f"{mark} {message}")
         if self._bubble_active():
             self.bubble.ask("")
@@ -4586,7 +4579,6 @@ class MainWindow(QMainWindow):
         self._core("action")
         QTimer.singleShot(2500, self._core_settle)
         self.answer.setPlainText(text)
-        self._history(f"{self._me()} ⏰", text, "robot")
         self._set_status("⏰ " + text)
         QApplication.alert(self)
         if self._bubble_active():
@@ -4863,7 +4855,6 @@ class MainWindow(QMainWindow):
             # L'IA a reconnu une demande pour l'autre robot : on la lui transmet
             if outcome.transcript is not None:
                 self.question.setText(f"🎙 {outcome.transcript}")
-                self._history("Toi", outcome.transcript, "me")
             self._core_settle()
             self.duo_relay(result.extra["duo_relay"])
             self.analysis_done.emit(outcome)
@@ -4880,8 +4871,6 @@ class MainWindow(QMainWindow):
         )
         if outcome.transcript is not None:
             self.question.setText(f"🎙 {outcome.transcript}")
-            self._history("Toi", outcome.transcript, "me")
-        self._history(self._me(), result.text, "robot")
         self._show_sources(result)
         self._remember_guide(result, outcome.profile)
         live = self._end_live(result.text)
