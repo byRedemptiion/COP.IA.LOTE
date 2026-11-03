@@ -43,3 +43,33 @@ def test_window_saves_a_rule_said_out_loud(qt_app, tmp_path, monkeypatch):
         assert Rules().all() == ["Ne parle plus de mon build"]
     finally:
         window.close()
+
+
+def test_conversation_continues_without_the_wake_word(qt_app, tmp_path, monkeypatch):
+    from alicia.ui.main_window import MainWindow
+
+    monkeypatch.chdir(tmp_path)
+    window = MainWindow(
+        build_services(load_settings(environ={"ALICE_AI_PROVIDER": "fake"}), demo=True)
+    )
+
+    class Wake:
+        running, level, state = True, 0.0, 0
+        listened = []
+
+        def listen_now(self, seconds):
+            self.listened.append(seconds)
+
+        def stop(self):
+            pass
+
+    try:
+        window.wake = Wake()
+        window._follow_up = True  # il vient de répondre à voix haute
+        window._voice_state("idle", None)
+        assert Wake.listened == [8.0] and window.core.state == "listening"
+        window._wake_cancel("silence")  # tu ne dis rien : fin, sans message
+        assert not window._awaiting_answer
+    finally:
+        window.wake = None
+        window.close()

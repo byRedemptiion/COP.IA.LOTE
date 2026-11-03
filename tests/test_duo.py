@@ -297,3 +297,54 @@ def test_the_ai_can_spot_a_relay_request_the_rules_missed():
     model.requests.clear()
     services.analysis.analyze(DEMO_WINDOW, "Quel objet ?")
     assert "TRANSMETTRE" not in model.requests[0].system_prompt  # duo coupé : pas de règle
+
+
+def test_the_other_robot_answers_itself_with_its_own_voice(qt_app, tmp_path, monkeypatch):
+    window, sent = _window(qt_app, tmp_path, monkeypatch, player="Redem")
+    window.duo_peer, window.duo_peer_player = "ALICIA", "Nova"
+    # « demande à Alicia ce qu'elle pense… » : la question est pour le ROBOT
+    window.duo_relay("demande à Alicia ce qu'elle pense de mon build")
+    _wait(qt_app, lambda: bool(sent))
+    kind, data = sent[0]
+    assert kind == "relay" and data["ask"] is True and "voice" in data
+    # « dis à Nova que j'arrive » : pour le joueur, pas de réponse du robot
+    sent.clear()
+    window.duo_relay("dis à Nova que j'arrive")
+    _wait(qt_app, lambda: bool(sent))
+    assert "ask" not in sent[0][1]
+    # Côté robot qui reçoit la question : il répond lui-même et renvoie sa réponse
+    sent.clear()
+    window._duo_received(
+        {"kind": "relay", "name": "ALICIA", "text": "Tu en penses quoi ?", "ask": True}
+    )
+    _wait(qt_app, lambda: any(kind == "answer" for kind, _ in sent))
+    answer = next(d for k, d in sent if k == "answer")
+    assert answer["text"] and "voice" in answer
+    # La réponse reçue n'entraîne pas de nouvelle réponse (pas de boucle)
+    sent.clear()
+    window._duo_received({"kind": "answer", "name": "ALICIA", "text": "Il est top !"})
+    assert "Il est top" in window.answer.toPlainText()
+    qt_app.processEvents()
+    assert not any(kind == "answer" for kind, _ in sent)
+    window.duo_link = None
+    window.close()
+
+
+def test_peer_voice_is_rebuilt_from_what_it_shares(qt_app, tmp_path, monkeypatch):
+    from alicia.core.config import Secret, VoiceSettings
+    from alicia.core.persona import PERSONAS
+    from alicia.ui.main_window import MainWindow
+
+    mine = VoiceSettings(gemini_key=Secret("k"))
+    alicia = PERSONAS["alicia"]
+    shared = {"engine": "gemini", "gemini": "Kore", "effect": "robote", "fx": [2.5, 50, 55]}
+    voice = MainWindow._peer_voice_settings(mine, "voixc", shared, alicia)
+    assert voice.tts_engine == "gemini" and voice.gemini_voice == "Kore" and voice.fx_metal == 50
+    designed = MainWindow._peer_voice_settings(
+        mine, "voixc", {"engine": "gemini", "gemini": "voice_abc"}, alicia
+    )
+    assert designed.tts_engine == "edge" and designed.tts_voice == "fr-FR-DeniseNeural"
+    no_key = MainWindow._peer_voice_settings(
+        VoiceSettings(), "voixc", {"engine": "openai", "openai": "nova"}, alicia
+    )
+    assert no_key.tts_engine == "edge"

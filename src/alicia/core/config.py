@@ -180,6 +180,7 @@ class VoiceSettings:
     wake_word: bool = True  # dire « Alicia… » pour lui parler sans toucher au clavier
     wake_model: str = "base"  # petit Whisper dédié au mot de réveil
     wake_sensitivity: int = 3  # 1 = peu sensible (pièce bruyante) … 5 = très sensible
+    follow_up_s: float = 8.0  # après sa réponse, il écoute la suite sans son nom (0 = non)
     openai_voice: str = "coral"  # voix OpenAI (moteur « openai »)
     openai_tts_model: str = "gpt-4o-mini-tts"
     openai_key: Secret = field(default_factory=lambda: Secret(None))  # même clé que l'IA OpenAI
@@ -274,6 +275,7 @@ class DuoSettings:
     max_turns: int = 4  # répliques au total quand les robots discutent entre eux
     hear_peer: bool = True  # entendre aussi l'autre robot sur ce PC, avec sa voix
     allow_chat: bool = False  # les robots ne se répondent tout seuls que si c'est autorisé
+    robot_answers: bool = True  # une question posée à l'autre robot : c'est LUI qui répond
     player: str = ""  # ton prénom, pour les messages transmis (« Redem veut savoir… »)
     provider: str = "main"  # IA du duo : main (la même) | gemini | openai | ollama
     key_slot: str = ""  # clé à utiliser (ex. GEMINI_API_KEY_2) ; vide = la clé utilisée
@@ -597,6 +599,7 @@ def load_settings(
             max_turns=max(2, min(20, int(_section(data, "duo").get("max_turns", 4) or 4))),
             hear_peer=bool(_section(data, "duo").get("hear_peer", True)),
             allow_chat=bool(_section(data, "duo").get("allow_chat", False)),
+            robot_answers=bool(_section(data, "duo").get("robot_answers", True)),
             player=str(_section(data, "duo").get("player", "")).strip()[:24],
             provider=_choice(
                 _section(data, "duo"), "provider", "main", ("main", "gemini", "openai", "ollama")
@@ -642,6 +645,7 @@ def load_settings(
             wake_word=bool(voice.get("wake_word", True)),
             wake_model=str(voice.get("wake_model", "base")).strip() or "base",
             wake_sensitivity=max(1, min(5, int(voice.get("wake_sensitivity", 3)))),
+            follow_up_s=max(0.0, min(20.0, float(voice.get("follow_up_s", 8.0) or 0))),
             openai_voice=str(voice.get("openai_voice", "coral")).strip() or "coral",
             openai_tts_model=str(voice.get("openai_tts_model", "gpt-4o-mini-tts")).strip(),
             # Clé dédiée à la voix (facultative), sinon la même que l'IA

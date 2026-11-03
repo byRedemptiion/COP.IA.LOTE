@@ -494,6 +494,30 @@ class SettingsPage(QWidget):
             1,
             3,
         )
+        self.follow_up_box = QComboBox()
+        for seconds, label in (
+            (0.0, "Non : il faut redire son nom à chaque fois"),
+            (5.0, "Oui, 5 s pour enchaîner sans redire son nom"),
+            (8.0, "Oui, 8 s pour enchaîner sans redire son nom"),
+            (12.0, "Oui, 12 s pour enchaîner sans redire son nom"),
+        ):
+            self.follow_up_box.addItem(label, seconds)
+        self.follow_up_box.currentIndexChanged.connect(
+            lambda _i: self._emit("follow_up_s", self.follow_up_box.currentData())
+        )
+        grid.addWidget(QLabel("Conversation"), 7, 0)
+        grid.addWidget(self.follow_up_box, 7, 1, 1, 2)
+        grid.addWidget(
+            _muted(
+                "Après sa réponse, ALICIA t'écoute encore quelques secondes (rond « À L'ÉCOUTE ») "
+                ": tu continues la discussion sans redire son nom. Rien n'est envoyé si tu ne "
+                "dis rien."
+            ),
+            8,
+            0,
+            1,
+            3,
+        )
         self._tab_layouts["perception"].addWidget(mic)
 
         # --- Voix --------------------------------------------------------------------------------
@@ -690,6 +714,12 @@ class SettingsPage(QWidget):
         )
         self.duo_chat.toggled.connect(lambda on: self._emit("duo_allow_chat", on))
         grid.addWidget(self.duo_chat, 8, 0, 1, 3)
+        self.duo_answers = QCheckBox(
+            "Une question posée à l'autre robot : c'est lui qui répond, avec sa voix"
+        )
+        self.duo_answers.setProperty("keep_names", True)
+        self.duo_answers.toggled.connect(lambda on: self._emit("duo_robot_answers", on))
+        grid.addWidget(self.duo_answers, 9, 0, 1, 3)
         self.duo_ai = QComboBox()
         self.duo_ai.currentIndexChanged.connect(
             lambda _i: self._emit("duo_ai", str(self.duo_ai.currentData() or "main|"))
@@ -1565,6 +1595,11 @@ class SettingsPage(QWidget):
             )
             self.wake_box.setChecked(wake_on)
             self.sensitivity.setValue(voice.wake_sensitivity)
+            index = self.follow_up_box.findData(float(voice.follow_up_s))
+            if index < 0:
+                self.follow_up_box.addItem(f"Oui, {voice.follow_up_s:g} s", voice.follow_up_s)
+                index = self.follow_up_box.count() - 1
+            self.follow_up_box.setCurrentIndex(index)
             self.sensitivity_label.setText(SENSITIVITY.get(voice.wake_sensitivity, ""))
             self.speak_box.setChecked(voice.speak_answers)
             self.engine_box.setCurrentIndex(max(0, self.engine_box.findData(voice.tts_engine)))
@@ -1855,6 +1890,7 @@ class SettingsPage(QWidget):
         try:
             self.duo_box.setChecked(duo.enabled)
             self.duo_chat.setChecked(duo.allow_chat)
+            self.duo_answers.setChecked(duo.robot_answers)
             self.duo_ai.clear()
             for label, (provider, slot) in ai_choices:
                 self.duo_ai.addItem(label, f"{provider}|{slot}")

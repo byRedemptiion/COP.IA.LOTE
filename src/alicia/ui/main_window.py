@@ -1254,6 +1254,8 @@ class MainWindow(QMainWindow):
             self._restart_wake()
         elif key == "wake_word":
             self.wake_box.setChecked(bool(value))  # applique et enregistre
+        elif key == "follow_up_s":
+            self._update_voice(follow_up_s=float(value or 0))  # type: ignore[arg-type]
         elif key == "wake_sensitivity":
             self._update_voice(wake_sensitivity=int(value))  # type: ignore[call-overload]
             self._restart_wake()
@@ -1541,7 +1543,7 @@ class MainWindow(QMainWindow):
                 else "Écris d'abord ton prénom."
             ):
                 self._notify("⚠ Voix coupée ou indisponible : vérifie Réglages → Voix.")
-        elif key in ("duo_player", "duo_allow_chat", "duo_ai"):
+        elif key in ("duo_player", "duo_allow_chat", "duo_ai", "duo_robot_answers"):
             from dataclasses import replace
 
             duo = self.services.settings.duo
@@ -1551,6 +1553,9 @@ class MainWindow(QMainWindow):
             elif key == "duo_allow_chat":
                 duo = replace(duo, allow_chat=bool(value))
                 self._save("duo", "allow_chat", bool(value))
+            elif key == "duo_robot_answers":
+                duo = replace(duo, robot_answers=bool(value))
+                self._save("duo", "robot_answers", bool(value))
             else:
                 provider, _, slot = str(value).partition("|")
                 duo = replace(duo, provider=provider, key_slot=slot)
@@ -2205,7 +2210,16 @@ class MainWindow(QMainWindow):
     def _hello_data(self) -> dict:  # type: ignore[type-arg]
         from alicia.core.persona import player
 
-        return {"player": self._player_name(), "phonetic": player().phonetic}
+        voice = self.services.settings.voice
+        shared = {  # ma voix (sans aucune clé) : l'autre PC me fait parler avec la même
+            "engine": voice.tts_engine,
+            "edge": voice.tts_voice,
+            "gemini": voice.gemini_voice,
+            "openai": voice.openai_voice,
+            "effect": voice.voice_effect,
+            "fx": [voice.fx_pitch, voice.fx_metal, voice.fx_bright],
+        }
+        return {"player": self._player_name(), "phonetic": player().phonetic, "voice": shared}
 
     def _show_duo_state(self) -> None:
         duo = self.services.settings.duo
@@ -2410,6 +2424,19 @@ class MainWindow(QMainWindow):
             "de nom devant."
         )
         question = f"{context}{player} te dit : « {request.strip()} »"
+        # À qui s'adresse la demande ? Au pote (son prénom est cité) ou au robot lui-même.
+        plain = request.casefold()
+        pote = (self.duo_peer_player or "").casefold()
+        self._relay_ask = bool(
+            self.services.settings.duo.robot_answers and not (pote and pote in plain)
+        )
+        if self._relay_ask:
+            system = self._duo_system(
+                f"{player} (ton joueur) veut que tu poses une question à {other} lui-même (le "
+                f"robot, pas son joueur) : c'est {other} qui va te répondre, avec sa voix. "
+                f"Écris UNIQUEMENT ta question pour {other} : courte, à la 2e personne (tu), "
+                "avec ta personnalité. Pas de guillemets, pas de nom devant."
+            )
         self._core("thinking")
 
         def done(text: str) -> None:
@@ -2423,6 +2450,45 @@ class MainWindow(QMainWindow):
         self._duo_ai(system, question, done, failed)
         log.info("Duo : message à transmettre à %s", other)
 
+    def _answer_peer(self, msg: dict, waited: int = 0) -> None:  # type: ignore[type-arg]
+        """L'autre robot m'a posé une question : je réponds, à voix haute, et je lui envoie."""
+        if self._duo_should_wait() and waited < 40_000:  # la question est d'abord dite
+            QTimer.singleShot(400, lambda: self._answer_peer(msg, waited + 400))
+            return
+        other = str(msg.get("name") or self.duo_peer or "l'autre robot")
+        asker = str(msg.get("player") or "son joueur")
+        system = self._duo_system(
+            f"{other} (le robot de {asker}) te pose une question, à toi directement. Réponds-"
+            f"lui toi-même, à voix haute, en t'adressant à {other} (et à {asker}) : une ou deux "
+            "phrases courtes (35 mots au plus), avec ta personnalité, sans nom devant."
+        )
+        question = f"{other} te demande : « {str(msg.get('text') or '').strip()} »"
+
+        def done(text: str) -> None:
+            text = self._clean_line(text)
+            if not text:
+                self._core_settle()
+                return
+            link = self.duo_link
+            if link is not None:
+                data = {"text": text, **self._hello_data()}  # avec ma voix
+                threading.Thread(target=lambda: link.send("answer", **data), daemon=True).start()
+            self.asked_label.setText(f"{current_persona().title.upper()} → {other.upper()}  ›")
+            self.answer.setPlainText(text)
+            if self._bubble_active():
+                self.bubble.ask("")
+                self.bubble.set_answer(text)
+            self._core("speaking")
+            self._bubble_finish(text, self._say(text))
+            log.info("Duo : réponse envoyée à %s", other)
+
+        def failed(exc: Exception) -> None:
+            log.warning("Duo : réponse à %s impossible (%r)", other, getattr(exc, "detail", exc))
+            self._core_settle()
+
+        self._core("thinking")
+        self._duo_ai(system, question, done, failed)
+
     def _send_relay(self, text: str) -> None:
         link, other = self.duo_link, self.duo_peer or "l'autre robot"
         self._core_settle()
@@ -2431,6 +2497,9 @@ class MainWindow(QMainWindow):
         from alicia.core.persona import player as me
 
         data = {"text": text, "player": self._player_name(), "phonetic": me().phonetic}
+        data["voice"] = self._hello_data()["voice"]  # ma voix, pour qu'il m'entende bien
+        if getattr(self, "_relay_ask", False):
+            data["ask"] = True  # c'est l'autre ROBOT qui doit répondre
         threading.Thread(target=lambda: link.send("relay", **data), daemon=True).start()
         # Pas de « d'accord, je transmets » à voix haute : juste la bulle et un hochement.
         self.answer.setPlainText(f"→ {other} : {text}")
@@ -2502,6 +2571,11 @@ class MainWindow(QMainWindow):
         """Le prénom du pote et sa prononciation, pour que ta voix le dise bien."""
         from alicia.core.persona import register_pronunciation
 
+        shared = msg.get("voice")
+        if isinstance(shared, dict):
+            if shared != getattr(self, "duo_peer_voice", None):
+                self._peer_speaker = None  # sa voix a changé : on la reconstruit
+            self.duo_peer_voice = shared
         name = str(msg.get("player") or "").strip()[:40]
         if name:
             self.duo_peer_player = name
@@ -2663,7 +2737,6 @@ class MainWindow(QMainWindow):
 
     def _peer_voice(self, name: str):  # type: ignore[no-untyped-def]
         """Voix de l'autre robot sur ce PC (ALICIA : sa voix Edge, VIIRUS : sa voix robot)."""
-        from dataclasses import replace
 
         from alicia.core.audio.speaker import Speaker
 
@@ -2672,14 +2745,56 @@ class MainWindow(QMainWindow):
             return None
         persona = self._persona_named(name)
         engine = persona.voice_engine if persona is not None else "edge"
+        shared = getattr(self, "duo_peer_voice", None) or {}
         if self._peer_speaker is None or self._peer_engine != engine:
-            voice = replace(
-                main.settings, tts_engine=engine, tts_voice="fr-FR-DeniseNeural", tts_rate="+0%"
-            )
+            voice = self._peer_voice_settings(main.settings, engine, shared, persona)
             self._peer_speaker = Speaker(voice)
             self._peer_speaker.on_audio = self._overlay_audio  # sa voix aussi dans OBS
             self._peer_engine = engine
         return self._peer_speaker
+
+    @staticmethod
+    def _peer_voice_settings(mine, engine: str, shared: dict, persona):  # type: ignore[no-untyped-def]
+        """La voix que l'autre robot a choisie chez lui, refaite ici avec MES clés ; à défaut
+        (voix sur mesure d'un autre compte Google, clé absente…), sa voix par défaut."""
+        from dataclasses import replace
+
+        from alicia.core.audio.speaker import FX_PRESETS
+
+        feminine = persona.feminine if persona is not None else True
+        edge_default = "fr-FR-DeniseNeural" if feminine else "fr-FR-HenriNeural"
+        wanted = str(shared.get("engine") or engine)
+        fx = shared.get("fx") if isinstance(shared.get("fx"), list) else None
+        pitch, metal, bright = FX_PRESETS.get(str(shared.get("effect") or ""), (0.0, 0, 50))
+        if fx and len(fx) == 3:
+            try:
+                pitch, metal, bright = float(fx[0]), int(fx[1]), int(fx[2])
+            except (TypeError, ValueError):
+                pass
+        gemini = str(shared.get("gemini") or "")
+        if wanted == "gemini" and (not mine.gemini_key or gemini.startswith("voice_")):
+            wanted = "edge"  # sa voix sur mesure vit dans SON compte Google
+        if wanted == "openai" and not mine.openai_key:
+            wanted = "edge"
+        if wanted not in ("edge", "gemini", "openai", "kokoro", "veris", "voixc"):
+            wanted = engine
+        edge = str(shared.get("edge") or "")
+        return replace(
+            mine,
+            tts_engine=wanted,
+            tts_voice=edge
+            if wanted == "edge" and edge.startswith(("fr-", "en-"))
+            else edge_default,
+            tts_rate="+0%",
+            gemini_voice=gemini if wanted == "gemini" else mine.gemini_voice,
+            openai_voice=str(shared.get("openai") or mine.openai_voice),
+            voice_effect=str(shared.get("effect") or ""),
+            voice_style="",
+            fx_pitch=pitch,
+            fx_metal=metal,
+            fx_bright=bright,
+            backup_voice=f"edge:{edge_default}",
+        )
 
     def _duo_received(self, msg: dict) -> None:  # type: ignore[type-arg]
         kind, name = msg.get("kind"), str(msg.get("name") or "l'autre robot")
@@ -2712,7 +2827,11 @@ class MainWindow(QMainWindow):
                 log.info("Duo : relié à %s", name)
             return
         self.duo_peer = name
-        if kind in ("relay", "say") and not msg.get("_queued") and self._duo_should_wait():
+        if (
+            kind in ("relay", "say", "answer")
+            and not msg.get("_queued")
+            and self._duo_should_wait()
+        ):
             # Tu parles à ton robot (ou il te répond) : le message attend son tour.
             self._duo_inbox.append(msg)
             self._duo_inbox_timer.start()
@@ -2724,6 +2843,12 @@ class MainWindow(QMainWindow):
         if kind == "relay":
             self._duo_last_msg = msg
             self._relay_received(msg)
+            if msg.get("ask") and self.services.settings.duo.robot_answers:
+                self._answer_peer(msg)  # on me pose la question : je réponds moi-même
+            return
+        if kind == "answer":
+            self._duo_last_msg = msg
+            self._relay_received(msg)  # sa réponse, avec SA voix (pas de nouvelle réponse)
             return
         if kind == "stop":
             conv = self.duo_conv
@@ -3288,6 +3413,8 @@ class MainWindow(QMainWindow):
 
     def _wake_command(self, audio: PreparedAudio) -> None:
         self._awaiting_answer = False
+        self._from_follow_up = getattr(self, "_follow_up_listening", False)
+        self._follow_up_listening = False
         if self.busy:
             return
         window = self.services.capture.foreground_window() or self.observed
@@ -3296,6 +3423,18 @@ class MainWindow(QMainWindow):
             self._update_state()
         self.question.setText("🎙 …")
         self._start_analysis(window, "", audio, self._take_speech_frame())  # type: ignore[arg-type]
+
+    def _listen_follow_up(self) -> None:
+        """Conversation : après sa réponse, il écoute la suite sans que tu redises son nom."""
+        self._follow_up = False
+        seconds = self.services.settings.voice.follow_up_s
+        if seconds <= 0 or self.wake is None or not self.wake.running or self.busy:
+            return
+        self.wake.listen_now(seconds)
+        self._follow_up_listening = True
+        self._awaiting_answer = True
+        self._core("listening")
+        self._set_status(f"🎙 Tu peux continuer, je t'écoute ({seconds:g} s)…")
 
     def _listen_for_reply(self) -> None:
         """Après « Tu confirmes ? » : elle écoute ta réponse sans que tu redises « Alicia »."""
@@ -3313,6 +3452,11 @@ class MainWindow(QMainWindow):
 
     def _wake_cancel(self, reason: str) -> None:
         self._awaiting_answer = False
+        if getattr(self, "_follow_up_listening", False):
+            self._follow_up_listening = False  # tu n'as rien ajouté : fin de la discussion
+            self._core_settle()
+            self._set_status("")
+            return
         log.info("Réveil sans demande : %s", reason)
         self._core_settle()
         self._set_status("Je n'ai rien entendu.")
@@ -4398,6 +4542,8 @@ class MainWindow(QMainWindow):
                 self._core_settle()
             if self._expect_reply:
                 self._listen_for_reply()
+            elif getattr(self, "_follow_up", False) and state != "error":
+                self._listen_follow_up()  # la discussion continue sans redire son nom
             # Elle a fini de parler : la bulle s'efface peu après (sauf nouvelle question).
             if (
                 self._bubble_active()
@@ -4661,7 +4807,9 @@ class MainWindow(QMainWindow):
         self._show_sources(result)
         self._remember_guide(result, outcome.profile)
         live = self._end_live(result.text)
-        self._bubble_finish(result.text, self._say(result.text) if live is None else live)
+        spoken = self._say(result.text) if live is None else live
+        self._bubble_finish(result.text, spoken)
+        self._follow_up = bool(spoken)  # après sa voix : il écoute la suite sans son nom
         if result.extra.get("open_page"):
             self.open_guide(auto=True)  # l'IA juge la page utile : ouverte directement
         if result.extra.get("show_image"):
@@ -4679,6 +4827,13 @@ class MainWindow(QMainWindow):
 
     def _failed(self, exc: Exception) -> None:
         self._end_live()
+        if getattr(self, "_from_follow_up", False) and isinstance(exc, AliciaError):
+            self._from_follow_up = False
+            if exc.detail == "transcription vide":  # bruit pendant l'écoute de la suite
+                log.info("Suite de la discussion : rien de compris, on n'insiste pas")
+                self._core_settle()
+                self.analysis_done.emit(exc)
+                return
         if isinstance(exc, ProviderError) and exc.kind is ProviderErrorKind.CANCELLED:
             self._set_status("Analyse annulée.")
             self._core_settle()
