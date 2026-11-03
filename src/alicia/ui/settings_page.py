@@ -555,19 +555,27 @@ class SettingsPage(QWidget):
             3,
         )
         self.output_box = QComboBox()
+        # Voix de secours : d'abord le moteur, puis ses voix (la 2e liste s'adapte)
+        self.backup_engine_box = QComboBox()
+        for key, label in (
+            ("local", "Sa voix robot (sur ton PC)"),
+            ("edge", "Edge (gratuit, sans quota)"),
+            ("gemini", "Gemini (ta clé Gemini)"),
+            ("openai", "ChatGPT (ta clé OpenAI)"),
+        ):
+            self.backup_engine_box.addItem(label, key)
         self.backup_voice_box = QComboBox()
-        self.backup_voice_box.addItem("Sa voix robot (sur ton PC, hors ligne)", "")
-        for name, label in EDGE_VOICES:
-            self.backup_voice_box.addItem(f"Edge — {label}", name)
-        self.backup_voice_box.currentIndexChanged.connect(
-            lambda _i: self._emit("backup_voice", self.backup_voice_box.currentData())
+        self.backup_engine_box.currentIndexChanged.connect(lambda _i: self._backup_engine_changed())
+        self.backup_voice_box.currentIndexChanged.connect(lambda _i: self._emit_backup())
+        tip = (
+            "Quand la voix en ligne ne répond pas (quota atteint, coupure), cette voix prend le "
+            "relais ; si elle échoue aussi, sa voix robot locale."
         )
-        self.backup_voice_box.setToolTip(
-            "Quand la voix en ligne ne répond pas (quota Gemini atteint, coupure), cette voix "
-            "prend le relais. Les voix Edge sont gratuites et sans quota."
-        )
+        self.backup_engine_box.setToolTip(tip)
+        self.backup_voice_box.setToolTip(tip)
         grid.addWidget(QLabel("Secours"), 11, 0)
-        grid.addWidget(self.backup_voice_box, 11, 1, 1, 2)
+        grid.addWidget(self.backup_engine_box, 11, 1)
+        grid.addWidget(self.backup_voice_box, 11, 2)
         grid.addWidget(QLabel("Sortie"), 5, 0)
         grid.addWidget(self.output_box, 5, 1, 1, 2)
         self.voice_test = QPushButton("Tester la voix")
@@ -1480,6 +1488,43 @@ class SettingsPage(QWidget):
                 box.setItemText(index, f"✨ {voice.name} (sur mesure)")
         box.blockSignals(False)
 
+    def _backup_voices(self, engine: str) -> list[tuple[str, str]]:
+        if engine == "edge":
+            return list(EDGE_VOICES)
+        if engine == "gemini":
+            return [(n, f"{n} — {d}") for n, d in GEMINI_VOICES]
+        if engine == "openai":
+            return list(OPENAI_VOICES)
+        return []
+
+    def _fill_backup_voices(self, engine: str, chosen: str = "") -> None:
+        box = self.backup_voice_box
+        box.blockSignals(True)
+        box.clear()
+        for name, label in self._backup_voices(engine):
+            box.addItem(label, name)
+        box.setVisible(engine != "local")
+        box.setCurrentIndex(max(0, box.findData(chosen)))
+        box.blockSignals(False)
+
+    def _backup_engine_changed(self) -> None:
+        self._fill_backup_voices(self.backup_engine_box.currentData())
+        self._emit_backup()
+
+    def _emit_backup(self) -> None:
+        engine = self.backup_engine_box.currentData()
+        name = self.backup_voice_box.currentData() or ""
+        self._emit("backup_voice", "" if engine == "local" or not name else f"{engine}:{name}")
+
+    def load_backup_voice(self, value: str) -> None:
+        from alicia.core.audio.speaker import split_backup
+
+        engine, name = split_backup(value)
+        self.backup_engine_box.blockSignals(True)
+        self.backup_engine_box.setCurrentIndex(max(0, self.backup_engine_box.findData(engine)))
+        self.backup_engine_box.blockSignals(False)
+        self._fill_backup_voices(engine, name)
+
     def mark_chosen_voice(self, key: str) -> None:
         for name, button in self.gallery_buttons.items():
             button.setText("✓ Choisie" if name == key else "Choisir")
@@ -1542,9 +1587,7 @@ class SettingsPage(QWidget):
                 self.gemini_voice_box.findData(voice.gemini_voice)
             )
             self.effect_box.setCurrentIndex(max(0, self.effect_box.findData(voice.voice_effect)))
-            self.backup_voice_box.setCurrentIndex(
-                max(0, self.backup_voice_box.findData(voice.backup_voice))
-            )
+            self.load_backup_voice(voice.backup_voice)
             self.voice_style.setText(voice.voice_style)
             self.load_fx(voice)
             self.show_voice_keys(voice.own_keys)

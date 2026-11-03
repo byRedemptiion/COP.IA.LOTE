@@ -347,3 +347,35 @@ def test_twitch_event_is_thanked_out_loud(qt_app, tmp_path, monkeypatch):
         assert said and "Bob" in said[0]
     finally:
         window.close()
+
+
+def test_backup_voice_can_be_chatgpt_or_gemini(qt_app, tmp_path, monkeypatch):
+    from alicia.core.audio import speaker
+    from alicia.core.config import Secret, VoiceSettings
+    from alicia.ui.main_window import MainWindow
+
+    assert speaker.split_backup("openai:coral") == ("openai", "coral")
+    assert speaker.split_backup("fr-FR-RemyMultilingualNeural")[0] == "edge"
+    assert speaker.split_backup("") == ("local", "")
+    used = []
+    monkeypatch.setattr(
+        speaker,
+        "openai_synthesizer",
+        lambda s, fallback=True: used.append((s.openai_voice, fallback)) or (lambda t: t),
+    )
+    speaker._profile_fallback(VoiceSettings(backup_voice="openai:coral", openai_key=Secret("k")))
+    assert used == [("coral", False)]  # pas de secours du secours : pas de boucle
+
+    monkeypatch.chdir(tmp_path)
+    window = MainWindow(
+        build_services(load_settings(environ={"ALICE_AI_PROVIDER": "fake"}), demo=True)
+    )
+    try:
+        window.show_page(2, "profile")
+        page = window.settings_page
+        page.backup_engine_box.setCurrentIndex(page.backup_engine_box.findData("openai"))
+        assert page.backup_voice_box.findData("coral") >= 0  # la 2e liste s'adapte
+        page.backup_voice_box.setCurrentIndex(page.backup_voice_box.findData("nova"))
+        assert window.services.settings.voice.backup_voice == "openai:nova"
+    finally:
+        window.close()

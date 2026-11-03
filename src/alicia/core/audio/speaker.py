@@ -16,6 +16,7 @@ import time
 from collections import deque
 from collections.abc import Callable
 from concurrent.futures import Future, ThreadPoolExecutor
+from dataclasses import replace
 
 import numpy as np
 
@@ -118,7 +119,7 @@ OPENAI_VOICE_STYLE = (
 )
 
 
-def openai_synthesizer(settings: VoiceSettings) -> Synthesizer:
+def openai_synthesizer(settings: VoiceSettings, fallback: bool = True) -> Synthesizer:
     """Voix OpenAI (API audio/speech) : très naturelle, payante à l'usage."""
     import httpx
 
@@ -176,7 +177,11 @@ def openai_synthesizer(settings: VoiceSettings) -> Synthesizer:
         data = response.content
         return np.frombuffer(data[: len(data) - len(data) % 2], dtype=np.int16)
 
-    return synthesize
+    if not settings.openai_key or not fallback:
+        return synthesize
+    from alicia.core.audio import voice_design
+
+    return voice_design.with_fallback(synthesize, _profile_fallback(settings))
 
 
 VERIS_PITCH_CENTS = 450  # recette VERIS MOD : Kokoro ff_siwis, +450 cents (= voix C d'ALICIA)
@@ -268,7 +273,7 @@ def _gemini_style(settings: VoiceSettings) -> str:
     return f"Dis en français, {effect[4]} : "
 
 
-def gemini_synthesizer(settings: VoiceSettings) -> Synthesizer:
+def gemini_synthesizer(settings: VoiceSettings, fallback: bool = True) -> Synthesizer:
     """Voix Gemini (30 voix, avec ta clé Gemini) : PCM 24 kHz 16 bits mono."""
     import base64
 
@@ -341,8 +346,8 @@ def gemini_synthesizer(settings: VoiceSettings) -> Synthesizer:
         except voice_design.VoiceBlocked:
             return synthesize(text)
 
-    if not settings.gemini_key:
-        return synthesize  # le message « il faut une clé » reste affiché
+    if not settings.gemini_key or not fallback:
+        return with_retry  # sans clé : le message « il faut une clé » reste affiché
     return voice_design.with_fallback(with_retry, _profile_fallback(settings))
 
 
@@ -354,19 +359,38 @@ def _local_fallback(settings: VoiceSettings) -> Synthesizer:
     return veris_synthesizer(settings.kokoro_speed, 1.30, 220.0, 3800.0, metallic=0.0)
 
 
+BACKUP_ENGINES = ("local", "edge", "gemini", "openai")
+
+
+def split_backup(value: str) -> tuple[str, str]:
+    """« gemini:Puck » → ("gemini", "Puck") ; ancien format « fr-FR-… » → Edge ; "" → robot."""
+    if not value:
+        return "local", ""
+    engine, sep, name = value.partition(":")
+    if sep and engine in BACKUP_ENGINES:
+        return engine, name
+    return "edge", value
+
+
 def _profile_fallback(settings: VoiceSettings) -> Synthesizer:
-    """Voix de secours des voix en ligne : la voix Edge choisie (gratuite, sans quota), et
-    la voix locale du profil si Edge ne répond pas non plus (pas d'Internet…)."""
+    """Voix de secours des voix en ligne : celle choisie (Edge, Gemini ou ChatGPT), et la
+    voix locale du profil si elle ne répond pas non plus (pas d'Internet, quota…)."""
     local = _local_fallback(settings)
-    if not settings.backup_voice:
+    engine, name = split_backup(settings.backup_voice)
+    if engine == "local" or not name:
         return local
-    edge = edge_synthesizer(settings.backup_voice, settings.tts_rate)
+    if engine == "gemini":
+        backup = gemini_synthesizer(replace(settings, gemini_voice=name), fallback=False)
+    elif engine == "openai":
+        backup = openai_synthesizer(replace(settings, openai_voice=name), fallback=False)
+    else:
+        backup = edge_synthesizer(name, settings.tts_rate)
 
     def synthesize(text: str) -> np.ndarray:
         try:
-            return edge(text)
+            return backup(text)
         except AudioError as exc:
-            log.warning("Voix de secours Edge indisponible : %s", exc.detail)
+            log.warning("Voix de secours (%s) indisponible : %s", engine, exc.detail)
             return local(text)
 
     return synthesize

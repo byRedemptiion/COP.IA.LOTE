@@ -3004,6 +3004,17 @@ class MainWindow(QMainWindow):
         self._copilot_pause_until = 0.0  # nouvelle clé : le Copilote réessaie tout de suite
         self._copilot_fails = 0
         self.check_ai_now()
+        voice = settings.voice
+        engine_key = {"gemini": voice.gemini_key, "openai": voice.openai_key}.get(provider)
+        if engine_key and voice.tts_engine in ("edge", "kokoro", "veris", "voixc"):
+            name = "Gemini" if provider == "gemini" else "ChatGPT"
+            QTimer.singleShot(
+                4000,
+                lambda: self._notify(
+                    f"💡 Ta voix n'a pas changé : pour une voix {name}, va dans Réglages → "
+                    f"Profil → Catalogue des voix → « Voix {name} » → Choisir."
+                ),
+            )
 
     def check_ai_now(self) -> None:
         """Essaie vraiment l'IA (petit appel) et dit si la clé est acceptée."""
