@@ -144,11 +144,13 @@ class StreamMode(QObject):
         icons = {"follow": "💜", "sub": "⭐", "resub": "⭐", "gift": "🎁", "cheer": "💎"}
         window.asked_label.setText(f"{icons.get(event.kind, '🚀')} TWITCH  ›  {event.user}")
         window.answer.setPlainText(text)
+        window._history(f"{window._me()} (Twitch)", text, "chat")
         if window._bubble_active():
             window.bubble.ask(f"{icons.get(event.kind, '🚀')} {event.user}")
         window._core("speaking")
         speaker, device = window.services.speaker, window.services.settings.stream.chat_output
         spoken = False
+        window._follow_up = False  # pas une réponse à ta question : pas d'écoute de la suite
         if window.voice_box.isChecked() and speaker is not None:
             spoken = speaker.speak(text, device=device or None)
         window._bubble_finish(text, spoken)
@@ -269,12 +271,15 @@ class StreamMode(QObject):
         title = current_persona().title.upper()
         window.asked_label.setText(f"💬 {message.user}  ›  {message.text[:80]}")
         window.answer.setPlainText(text)
+        window._history(f"💬 {message.user}", message.text, "chat")
+        window._history(f"{title} (chat)", text, "robot")
         window._set_status(f"💬 {title} répond au chat")
         if window._bubble_active():
             window.bubble.ask(f"💬 {message.user} : {message.text[:120]}")
         window._core("speaking")
         speaker, device = window.services.speaker, window.services.settings.stream.chat_output
         spoken = False
+        window._follow_up = False  # pas une réponse à ta question : pas d'écoute de la suite
         if window.voice_box.isChecked() and speaker is not None:
             spoken = speaker.speak(text, device=device or None)  # casque seul : pas sur le live
             window.stop_voice_button.setEnabled(spoken)

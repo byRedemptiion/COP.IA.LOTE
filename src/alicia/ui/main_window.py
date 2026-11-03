@@ -58,6 +58,7 @@ from alicia.ui.workers import LogBridge, QtLogHandler, Task, VoiceBridge
 
 log = logging.getLogger("alicia.ui")
 MAX_LOG_LINES = 3000
+PEER_ECHO_S = 0.8  # micro encore coupé juste après la voix de l'autre robot (écho)
 NOTICES = ("⚠", "Patiente", "Mets le jeu", "Raccourci :", "Confirmation demandée")
 VISION_CHOICES = (
     ("window", "Regarder l'application (le jeu)"),
@@ -506,14 +507,23 @@ class MainWindow(QMainWindow):
         )
         right.setMinimumWidth(360)
 
+        # --- Tout à droite : historique complet (ne s'efface pas) -------------------------------
+        from alicia.core.history import History
+        from alicia.ui.history_panel import HistoryPanel
+
+        self.history_panel = HistoryPanel(History())
+        self.history_panel.hide_requested.connect(lambda: self.toggle_history(False))
+
         splitter = QSplitter(Qt.Orientation.Horizontal)
         splitter.addWidget(left)
         splitter.addWidget(center)
         splitter.addWidget(right)
+        splitter.addWidget(self.history_panel)
         splitter.setStretchFactor(0, 0)
         splitter.setStretchFactor(1, 1)
         splitter.setStretchFactor(2, 1)
-        splitter.setSizes([300, 520, 460])
+        splitter.setStretchFactor(3, 1)
+        splitter.setSizes([280, 420, 420, 320])
 
         # --- Barre de question -------------------------------------------------------------------
         self.question = QLineEdit()
@@ -549,8 +559,13 @@ class MainWindow(QMainWindow):
         self.logs_toggle = QPushButton("Journal ▸")
         self.logs_toggle.setObjectName("ghost")
         self.logs_toggle.clicked.connect(self.toggle_logs)
+        self.history_toggle = QPushButton("Historique ▾")
+        self.history_toggle.setObjectName("ghost")
+        self.history_toggle.setToolTip("Afficher / masquer l'historique de la conversation")
+        self.history_toggle.clicked.connect(lambda: self.toggle_history())
         footer = QHBoxLayout()
         footer.addWidget(self.logs_toggle)
+        footer.addWidget(self.history_toggle)
         footer.addSpacing(8)
         footer.addWidget(self.hotkey_label)
         footer.addWidget(self.provider_label)
@@ -831,6 +846,7 @@ class MainWindow(QMainWindow):
             self.asked_label.setText(f"📝 DÉBRIEF DE {title}  ›")
             self.answer.setPlainText(text)
             self._set_status("📝 Débrief prêt.")
+            self._history(f"{title} (débrief)", text, "robot")
             if self._bubble_active():
                 self.bubble.ask("📝 Débrief de la partie")
             self._core("speaking")
@@ -2481,6 +2497,7 @@ class MainWindow(QMainWindow):
                 threading.Thread(target=lambda: link.send("answer", **data), daemon=True).start()
             self.asked_label.setText(f"{current_persona().title.upper()} → {other.upper()}  ›")
             self.answer.setPlainText(text)
+            self._history(f"{self._me()} → {other.upper()}", text, "robot")
             if self._bubble_active():
                 self.bubble.ask("")
                 self.bubble.set_answer(text)
@@ -2509,6 +2526,7 @@ class MainWindow(QMainWindow):
         threading.Thread(target=lambda: link.send("relay", **data), daemon=True).start()
         # Pas de « d'accord, je transmets » à voix haute : juste la bulle et un hochement.
         self.answer.setPlainText(f"→ {other} : {text}")
+        self._history(f"{self._me()} → {other.upper()}", text, "robot")
         if self._bubble_active():
             self.bubble.ask("")
             self.bubble.set_answer(f"→ {other} : {text}")
@@ -2615,6 +2633,7 @@ class MainWindow(QMainWindow):
         line = text if peer is not None else f"Message de {name} : {text}"
         self.asked_label.setText(f"{name.upper()}  ›")
         self.answer.setPlainText(text)
+        self._history(name.upper(), text, "peer")
         if self._bubble_active():
             from alicia.ui.naming import persona_avatar
 
@@ -2624,6 +2643,7 @@ class MainWindow(QMainWindow):
             self.bubble.set_answer(line)
         if peer is not None and self.voice_box.isChecked():
             self.stop_voice()
+            self._peer_will_speak()
             spoken = peer.speak(text)
         else:
             self._core("speaking")
@@ -2733,6 +2753,7 @@ class MainWindow(QMainWindow):
             data = {"conv": conv["id"], "turn": turn, "max": conv["max"], "text": text}
             threading.Thread(target=lambda: link.send("say", **data), daemon=True).start()
         self.answer.setPlainText(text)
+        self._history(self._me(), text, "robot")
         if self._bubble_active():
             self.bubble.ask("")
             self.bubble.set_answer(text)
@@ -2889,6 +2910,7 @@ class MainWindow(QMainWindow):
         conv["turn"] = turn
         conv["lines"].append((name, text))
         self.asked_label.setText(f"{name.upper()}  ›  {text}")
+        self._history(name.upper(), text, "peer")
         if self._bubble_active():
             from alicia.ui.naming import persona_avatar
 
@@ -2901,6 +2923,7 @@ class MainWindow(QMainWindow):
             peer = self._peer_voice(name)
             if peer is not None:
                 self.stop_voice()
+                self._peer_will_speak()
                 peer.speak(text)
         if turn >= conv["max"] or not self.services.settings.duo.allow_chat:
             # Fin, ou discussions non autorisées ici : on écoute sans répondre.
@@ -3387,9 +3410,27 @@ class MainWindow(QMainWindow):
             self.orb.wake_on = False
 
     def _wake_paused(self) -> bool:
-        """Micro réservé à la touche « parler » pendant qu'elle est maintenue."""
+        """Micro réservé à la touche « parler » pendant qu'elle est maintenue, et coupé pendant
+        que l'autre robot du duo parle (+ un court instant) : sa voix sortie des enceintes
+        n'est ni un réveil (« VIIRUS… » dans sa phrase) ni la suite de ta conversation."""
         recorder = self.services.recorder
-        return bool(recorder is not None and recorder.recording)
+        if recorder is not None and recorder.recording:
+            return True
+        if self._peer_talking():
+            self._peer_quiet_at = time.monotonic() + PEER_ECHO_S
+            return True
+        return time.monotonic() < getattr(self, "_peer_quiet_at", 0.0)
+
+    def _peer_will_speak(self) -> None:
+        """L'autre robot va parler ici : fin de l'écoute de ta suite (le micro est coupé)."""
+        self._peer_quiet_at = time.monotonic() + PEER_ECHO_S
+        self._follow_up = False
+        if getattr(self, "_follow_up_listening", False) or self._awaiting_answer:
+            self._follow_up_listening = False
+            self._awaiting_answer = False
+            self._expect_reply = False
+            self._core_settle()
+            self._set_status("")
 
     def _wake_stop_only(self) -> bool:
         """Pendant qu'ALICIA analyse, seul « Alicia, stop » est écouté. Pendant qu'elle parle,
@@ -3741,6 +3782,22 @@ class MainWindow(QMainWindow):
         if not spoken:
             self.bubble.hide_after(self.bubble.linger_ms(text))
 
+    def toggle_history(self, visible: bool | None = None) -> None:
+        if visible is None:
+            visible = not self.history_panel.isVisible()
+        self.history_panel.setVisible(visible)
+        self.history_toggle.setText("Historique ▾" if visible else "Historique ▸")
+
+    def _history(self, who: str, text: str, kind: str = "robot") -> None:
+        """Ajoute une phrase à l'historique (panneau de droite, jamais effacé tout seul)."""
+        panel = getattr(self, "history_panel", None)
+        if panel is not None:
+            panel.add(who, text, kind)
+
+    @staticmethod
+    def _me() -> str:
+        return current_persona().title.upper()
+
     def toggle_logs(self) -> None:
         visible = not self.logs_panel.isVisible()
         self.logs_panel.setVisible(visible)
@@ -4003,6 +4060,8 @@ class MainWindow(QMainWindow):
         self._core("thinking")
         shown = "…" if audio is not None else (question.strip() or DEFAULT_HOTKEY_QUESTION)
         self.asked_label.setText(f"TOI  ›  {shown}")
+        if audio is None:
+            self._history("Toi", shown, "me")
         if self._bubble_active():
             self.bubble.ask("🎙 …" if audio is not None else shown)
         web_search = self.web_box.isChecked()
@@ -4196,6 +4255,8 @@ class MainWindow(QMainWindow):
         reply = outcome.action
         assert reply is not None
         if reply.intent in ("duo_relay", "duo_chat"):  # « Viirus, demande à Alicia… »
+            if outcome.transcript:
+                self._history("Toi", outcome.transcript, "me")
             self._core_settle()
             if reply.intent == "duo_relay":
                 self.duo_relay(reply.text)
@@ -4236,6 +4297,9 @@ class MainWindow(QMainWindow):
             label = "COMPRIS" if outcome.transcript is not None else "TOI"
             self.asked_label.setText(f"{label}  ›  {asked}")
         self.answer.setPlainText(reply.text)
+        if outcome.transcript is not None and asked:
+            self._history("Toi", asked, "me")
+        self._history(self._me(), reply.text, "robot")
         if self._bubble_active():
             self.bubble.ask(asked)
         self.sources_label.setText("")
@@ -4482,6 +4546,7 @@ class MainWindow(QMainWindow):
         mark = "⚠" if importance >= 9 else "💡"
         self.asked_label.setText(f"{mark} {current_persona().title.upper()} (COPILOTE)  ›")
         self.answer.setPlainText(message)
+        self._history(f"{self._me()} (Copilote)", message, "copilot")
         self._set_status(f"{mark} {message}")
         if self._bubble_active():
             self.bubble.ask("")
@@ -4490,6 +4555,9 @@ class MainWindow(QMainWindow):
         QTimer.singleShot(1800, self._core_settle)
 
     def _say(self, text: str) -> bool:
+        # Ce n'est plus la réponse à ta question qui parle : pas d'écoute de la suite après
+        # (sinon un message du duo ou du Copilote rouvrait le micro « à l'écoute »).
+        self._follow_up = False
         speaker = self.services.speaker
         if self.voice_box.isChecked() and speaker is not None and speaker.speak(text):
             self.stop_voice_button.setEnabled(True)
@@ -4518,6 +4586,7 @@ class MainWindow(QMainWindow):
         self._core("action")
         QTimer.singleShot(2500, self._core_settle)
         self.answer.setPlainText(text)
+        self._history(f"{self._me()} ⏰", text, "robot")
         self._set_status("⏰ " + text)
         QApplication.alert(self)
         if self._bubble_active():
@@ -4794,6 +4863,7 @@ class MainWindow(QMainWindow):
             # L'IA a reconnu une demande pour l'autre robot : on la lui transmet
             if outcome.transcript is not None:
                 self.question.setText(f"🎙 {outcome.transcript}")
+                self._history("Toi", outcome.transcript, "me")
             self._core_settle()
             self.duo_relay(result.extra["duo_relay"])
             self.analysis_done.emit(outcome)
@@ -4810,12 +4880,18 @@ class MainWindow(QMainWindow):
         )
         if outcome.transcript is not None:
             self.question.setText(f"🎙 {outcome.transcript}")
+            self._history("Toi", outcome.transcript, "me")
+        self._history(self._me(), result.text, "robot")
         self._show_sources(result)
         self._remember_guide(result, outcome.profile)
         live = self._end_live(result.text)
         spoken = self._say(result.text) if live is None else live
         self._bubble_finish(result.text, spoken)
         self._follow_up = bool(spoken)  # après sa voix : il écoute la suite sans son nom
+        speaker = self.services.speaker
+        if self._follow_up and speaker is not None and not speaker.speaking:
+            # Réponse courte déjà finie pendant la préparation : la suite s'écoute maintenant
+            QTimer.singleShot(0, self._listen_follow_up)
         if result.extra.get("open_page"):
             self.open_guide(auto=True)  # l'IA juge la page utile : ouverte directement
         if result.extra.get("show_image"):

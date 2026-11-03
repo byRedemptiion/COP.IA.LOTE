@@ -348,3 +348,65 @@ def test_peer_voice_is_rebuilt_from_what_it_shares(qt_app, tmp_path, monkeypatch
         VoiceSettings(), "voixc", {"engine": "openai", "openai": "nova"}, alicia
     )
     assert no_key.tts_engine == "edge"
+
+
+def test_history_keeps_the_whole_conversation(qt_app, tmp_path, monkeypatch):
+    window, sent = _window(qt_app, tmp_path, monkeypatch, player="Redem")
+    window._duo_received({"kind": "relay", "name": "ALICIA", "text": "Nova arrive !"})
+    window._duo_received({"kind": "answer", "name": "ALICIA", "text": "Il est top !"})
+    text = window.history_panel.text()
+    assert "Nova arrive" in text and "Il est top" in text  # rien ne s'efface
+    window.history_panel.add("Toi", "Salut", "me")
+    window.history_panel.add("Toi", "Salut", "me")  # même ligne réaffichée : une seule fois
+    assert window.history_panel.text().count("Salut") == 1
+    from alicia.core.history import History
+
+    assert [line.text for line in History().lines][-1] == "Salut"  # gardé après redémarrage
+    window.history_panel.clear()
+    assert not History().lines
+    window.toggle_history(False)
+    assert not window.history_panel.isVisible()
+    window.duo_link = None
+    window.close()
+
+
+def test_peer_voice_does_not_leave_the_mic_listening(qt_app, tmp_path, monkeypatch):
+    window, sent = _window(qt_app, tmp_path, monkeypatch)
+    # Ta conversation avec ton robot : il écoute la suite…
+    window._follow_up_listening = window._awaiting_answer = True
+    window._follow_up = True
+
+    class Peer:
+        speaking = False
+
+        def speak(self, _text):
+            Peer.speaking = True
+            return True
+
+        def stop(self):
+            pass
+
+    window._peer_speaker = Peer()
+    monkeypatch.setattr(window, "_peer_voice", lambda _name: window._peer_speaker)
+    window.voice_box.setChecked(True)
+    window._duo_received({"kind": "relay", "name": "ALICIA", "text": "VIIRUS, tu es là ?"})
+    # …mais ALICIA parle : l'écoute s'arrête et le micro ne prend pas sa voix pour la tienne
+    assert not window._awaiting_answer and not window._follow_up_listening
+    assert not window._follow_up
+    assert window._wake_paused()
+    Peer.speaking = False
+    assert window._wake_paused()  # écho juste après sa phrase
+    window._peer_quiet_at = 0.0
+    assert not window._wake_paused()
+    window.voice_box.setChecked(False)
+    window.duo_link = None
+    window.close()
+
+
+def test_other_speech_does_not_reopen_the_follow_up(qt_app, tmp_path, monkeypatch):
+    window, sent = _window(qt_app, tmp_path, monkeypatch)
+    window._follow_up = True  # reste d'une réponse déjà finie
+    window._say("Message du Copilote")
+    assert not window._follow_up
+    window.duo_link = None
+    window.close()
