@@ -136,6 +136,9 @@ def build_system_prompt(
             "sans aucun contenu romantique ou sexuel) :\n"
             f"<personnalite>\n{character}\n</personnalite>\n"
         )
+    from alicia.core.rules import Rules
+
+    prompt += Rules().prompt()  # « arrête de dire… » : enregistré par le logiciel, rappelé ici
     from alicia.core.people import people_context
 
     prompt += people_context()

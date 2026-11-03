@@ -844,6 +844,22 @@ class MainWindow(QMainWindow):
 
         self._background(lambda: self.services.analysis.debrief(60, moments), done, failed)
 
+    def rule_action(self, intent: str) -> str:
+        """Consignes du joueur : enregistrées par le logiciel, rappelées à chaque demande."""
+        from alicia.core.rules import Rules
+
+        kind, _, value = intent.removeprefix("rule_").partition(":")
+        rules = Rules()
+        if kind == "add":
+            rules.add(value)
+            self._refresh_notebook()
+            return "Compris, c'est noté comme consigne : je m'y tiens à partir de maintenant."
+        removed = rules.lift(value)
+        self._refresh_notebook()
+        if not removed:
+            return "Je n'avais pas de consigne là-dessus."
+        return f"D'accord, {removed} consigne{'s' if removed > 1 else ''} retirée{'s' if removed > 1 else ''}."
+
     def notebook_action(self, intent: str) -> str:
         """Carnet de partie : ajouter, lister, oublier (pour le jeu en cours)."""
         from alicia.core.notebook import Notebook
@@ -867,6 +883,8 @@ class MainWindow(QMainWindow):
 
     def _refresh_notebook(self) -> None:
         page = self.settings_page
+        if hasattr(page, "show_rules"):
+            page.show_rules()
         if hasattr(page, "show_notebook"):
             from alicia.core.notebook import Notebook
 
@@ -2254,6 +2272,11 @@ class MainWindow(QMainWindow):
                 "copilot_on" if wanted else "copilot_off",
                 done=True,
             )
+        from alicia.core.rules import parse_rule_command
+
+        rule = parse_rule_command(text)  # « arrête de me dire… », « tu peux reparler de… »
+        if rule is not None:
+            return ActionReply("…", f"rule_{rule[0]}:{rule[1]}", done=True)
         me = current_persona()
 
         others = [p.title for p in PERSONAS.values() if p.key != me.key] + [self.duo_peer]
@@ -4025,6 +4048,8 @@ class MainWindow(QMainWindow):
             QTimer.singleShot(0, self.save_clip)
         if reply.intent == "debrief":
             QTimer.singleShot(0, self.debrief)
+        if reply.intent.startswith("rule_"):
+            reply.text = self.rule_action(reply.intent)
         if reply.intent.startswith("note_"):
             reply.text = self.notebook_action(reply.intent)
         if reply.intent.startswith("player_name:"):

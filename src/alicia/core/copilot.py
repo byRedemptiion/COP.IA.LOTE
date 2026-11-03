@@ -150,6 +150,10 @@ class CopilotGate:
         now = time.monotonic() if now is None else now
         if not decision.speak:
             return False, "rien d'important"
+        from alicia.core.rules import Rules
+
+        if Rules().blocks(decision.message):  # le joueur a dit de ne plus dire ça
+            return False, "consigne du joueur"
         if decision.category not in self.categories:
             return False, f"type « {decision.category} » désactivé"
         if decision.importance < self.threshold:

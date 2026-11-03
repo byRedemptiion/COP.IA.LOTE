@@ -575,6 +575,7 @@ class SettingsPage(QWidget):
         grid.addWidget(self.voice_test, 6, 0)
         self._tab_layouts["profile"].addWidget(voice)
         self._tab_layouts["profile"].addWidget(self._voice_gallery())
+        self._tab_layouts["profile"].addWidget(self._rules_panel())
         self._tab_layouts["profile"].addWidget(self._notebook_panel())
 
         # --- Stream ---------------------------------------------------------------------------------
@@ -1861,6 +1862,62 @@ class SettingsPage(QWidget):
             3,
         )
         return panel
+
+    def _rules_panel(self) -> QWidget:
+        """Consignes du joueur : ce qu'il doit (ne plus) faire, enregistré et toujours rappelé."""
+        from PySide6.QtWidgets import QListWidget
+
+        panel, grid = _panel()
+        grid.addWidget(_title("🚫  CONSIGNES"), 0, 0, 1, 3)
+        self.rules_list = QListWidget()
+        self.rules_list.setFixedHeight(110)
+        grid.addWidget(self.rules_list, 1, 0, 1, 3)
+        self.rules_input = QLineEdit()
+        self.rules_input.setPlaceholderText("ex. ne me dis plus de surveiller mes PV")
+        add = QPushButton("Ajouter")
+        remove = QPushButton("✕ Retirer")
+        remove.setObjectName("ghost")
+        grid.addWidget(self.rules_input, 2, 0, 1, 2)
+        grid.addWidget(add, 2, 2)
+        grid.addWidget(remove, 3, 2)
+
+        def add_rule() -> None:
+            from alicia.core.rules import Rules
+
+            if self.rules_input.text().strip():
+                Rules().add(self.rules_input.text())
+                self.rules_input.clear()
+                self.show_rules()
+
+        def remove_rule() -> None:
+            from alicia.core.rules import Rules
+
+            if self.rules_list.currentRow() >= 0:
+                Rules().remove(self.rules_list.currentRow())
+                self.show_rules()
+
+        add.clicked.connect(add_rule)
+        self.rules_input.returnPressed.connect(add_rule)
+        remove.clicked.connect(remove_rule)
+        grid.addWidget(
+            _muted(
+                "À la voix : « arrête de me dire… », « ne parle plus de… », « évite… », "
+                "« désormais… » ; et « tu peux reparler de… » ou « annule tes consignes ». "
+                "Enregistrées par le logiciel et rappelées à l'IA à chaque demande ; le Copilote "
+                "bloque en plus toute intervention qui reprend ce que tu lui as interdit."
+            ),
+            4,
+            0,
+            1,
+            3,
+        )
+        return panel
+
+    def show_rules(self) -> None:
+        from alicia.core.rules import Rules
+
+        self.rules_list.clear()
+        self.rules_list.addItems(Rules().all())
 
     def _notebook_panel(self) -> QWidget:
         """Carnet de partie : ce que tu lui as demandé de retenir, jeu par jeu."""
