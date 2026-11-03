@@ -22,6 +22,7 @@ class ImagePanel(QWidget):
             | Qt.WindowType.Tool,
         )
         self.setObjectName("imagePanel")
+        self.setAttribute(Qt.WidgetAttribute.WA_ShowWithoutActivating)  # le jeu garde la main
         self.setStyleSheet(
             f"QWidget#imagePanel {{ background:{DEEP}; border:1px solid {PINK}; "
             f"border-radius:12px; }} QLabel {{ color:{TEXT}; }}"
@@ -38,6 +39,7 @@ class ImagePanel(QWidget):
         open_page = QPushButton("📖 Page")
         open_page.setToolTip("Ouvrir la page dans le navigateur")
         open_page.clicked.connect(self.open_page)
+        self.open_button = open_page
         close = QPushButton("✕")
         close.setFixedWidth(32)
         close.clicked.connect(self.hide)
@@ -49,11 +51,15 @@ class ImagePanel(QWidget):
         self.picture.setAlignment(Qt.AlignmentFlag.AlignCenter)
         box.addWidget(self.picture, 1)
 
-    def show_image(self, data: bytes, title: str, url: str) -> bool:
+    def show_image(self, data: bytes, title: str, url: str, link: str = "📖 Page") -> bool:
         pixmap = QPixmap()
         if not pixmap.loadFromData(data):
             return False
         self._pixmap, self.url = pixmap, url
+        self.open_button.setText(link)
+        self.open_button.setToolTip(
+            "Ouvrir l'image" if url.startswith("file:") else "Ouvrir la page dans le navigateur"
+        )
         self.title.setText(title[:120])
         self._render()
         if not self.isVisible():
@@ -74,7 +80,7 @@ class ImagePanel(QWidget):
         self.adjustSize()
 
     def open_page(self) -> None:
-        if self.url.startswith(("http://", "https://")):
+        if self.url.startswith(("http://", "https://", "file:")):
             QDesktopServices.openUrl(QUrl(self.url))
 
     def wheelEvent(self, event) -> None:  # type: ignore[no-untyped-def]  # noqa: N802

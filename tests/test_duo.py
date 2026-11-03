@@ -419,3 +419,84 @@ def test_other_speech_does_not_reopen_the_follow_up(qt_app, tmp_path, monkeypatc
     assert not window._follow_up
     window.duo_link = None
     window.close()
+
+
+def test_screens_travel_encrypted_and_signed():
+    import json as _json
+
+    stored = {}
+
+    def relay(request):
+        if request.method == "PUT":
+            stored["body"] = request.content
+            stored["message"] = request.headers["Message"]
+            return httpx.Response(200, json={})
+        if request.url.path == "/file/abc.bin":
+            return httpx.Response(200, content=stored["body"])
+        return httpx.Response(404)
+
+    transport = httpx.MockTransport(relay)
+    me = DuoLink("code", "moi", "VIIRUS", lambda _m: None, transport=transport)
+    jpeg = b"\xff\xd8" + b"image" * 1000
+    assert me.send_file("screen", jpeg, player="Redem")
+    assert jpeg[2:50] not in stored["body"]  # le relais ne voit que du charabia
+    received = []
+    other = DuoLink("code", "lui", "ALICIA", received.append, transport=transport)
+    event = {
+        "id": "1",
+        "event": "message",
+        "message": stored["message"],
+        "attachment": {"url": "https://ntfy.sh/file/abc.bin"},
+    }
+    other._line(_json.dumps(event))
+    (msg,) = received
+    assert msg["kind"] == "screen" and msg["_file_url"].endswith("/file/abc.bin")
+    assert other.fetch_file(msg["_file_url"], msg["sha"]) == jpeg
+    assert other.fetch_file("https://ailleurs.example/file/abc.bin", msg["sha"]) is None
+    stranger = DuoLink("autre-code", "x", "X", lambda _m: None, transport=transport)
+    assert stranger.fetch_file(msg["_file_url"], msg["sha"]) is None  # pas notre code
+    assert other.fetch_file(msg["_file_url"], "0" * 64) is None  # empreinte différente
+
+
+@pytest.mark.parametrize(
+    ("text", "screen"),
+    [
+        ("Viirus, envoie un screen à Alicia", True),
+        ("envoie-lui mon écran", True),
+        ("montre mon écran à l'autre robot", True),
+        ("montre-moi l'écran", False),
+        ("dis à Alicia que j'arrive", False),
+    ],
+)
+def test_screen_requests(text, screen):
+    from alicia.core.duo import parse_duo_request
+
+    found = parse_duo_request(text, ["ALICIA"])
+    assert (found is not None and found[0] == "screen") == screen
+
+
+def test_received_screen_is_saved_and_shown(qt_app, tmp_path, monkeypatch):
+    from alicia.ui.main_window import MainWindow
+
+    window, sent = _window(qt_app, tmp_path, monkeypatch)
+    monkeypatch.setattr(MainWindow, "_screens_folder", staticmethod(lambda: tmp_path / "screens"))
+    from PySide6.QtCore import QBuffer, QIODevice
+    from PySide6.QtGui import QImage
+
+    image = QImage(64, 48, QImage.Format.Format_RGB32)
+    image.fill(0x3366FF)
+    buffer = QBuffer()
+    buffer.open(QIODevice.OpenModeFlag.WriteOnly)
+    image.save(buffer, "JPEG")
+    jpeg = bytes(buffer.data())
+    window.duo_link.fetch_file = lambda url, sha: jpeg
+    window._duo_received(
+        {"kind": "screen", "name": "ALICIA", "player": "Nova", "_file_url": "u", "sha": "s"}
+    )
+    _wait(qt_app, lambda: window._last_screen is not None)
+    assert window._last_screen.read_bytes() == jpeg and "Nova" in window._last_screen.name
+    assert window.image_panel is not None and window.image_panel.isVisible()
+    assert window.duo_panel.last_screen_button.isVisibleTo(window.duo_panel)
+    window.image_panel.hide()
+    window.duo_link = None
+    window.close()

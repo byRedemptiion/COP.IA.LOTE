@@ -24,6 +24,8 @@ DOT = {
 
 class DuoPanel(QFrame):
     manage = Signal()  # « Gérer le Duo » → Réglages → Social
+    send_screen = Signal()  # 📸 envoyer une capture de son écran à l'autre
+    show_screen = Signal()  # 🖼 revoir le dernier screen reçu
 
     def __init__(self) -> None:
         super().__init__()
@@ -57,6 +59,17 @@ class DuoPanel(QFrame):
         self.summary.setProperty("keep_names", True)
         box.addWidget(self.summary)
         box.addStretch(1)
+        self.screen_button = QPushButton("📸 Envoyer un screen")
+        self.screen_button.setToolTip(
+            "Envoie une capture de ton jeu à l'autre joueur (chiffrée avec le code du duo). "
+            "À la voix : « envoie-lui un screen »."
+        )
+        self.screen_button.clicked.connect(self.send_screen.emit)
+        box.addWidget(self.screen_button)
+        self.last_screen_button = QPushButton("🖼 Dernier screen reçu")
+        self.last_screen_button.clicked.connect(self.show_screen.emit)
+        self.last_screen_button.setVisible(False)
+        box.addWidget(self.last_screen_button)
         button = QPushButton("Gérer le Duo")
         button.clicked.connect(self.manage.emit)
         box.addWidget(button)

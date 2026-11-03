@@ -5,6 +5,10 @@ compte ni serveur à installer. Tout est **chiffré et signé avec le code de du
 êtes seuls à connaître : le relais ne voit que du charabia, et un message qui ne vient pas
 de l'autre robot est rejeté.
 
+Screens : une capture d'écran part en pièce jointe du relais, chiffrée et signée elle aussi
+(le relais la garde 3 h au plus, illisible) ; l'autre PC la télécharge, vérifie sa signature
+et son empreinte, puis l'affiche. Seulement une image JPEG, jamais un fichier à ouvrir.
+
 Sécurité : un message reçu n'est que du texte de conversation. Il ne passe jamais par les
 actions du PC (éteindre, lancer une appli…) et l'IA a pour consigne de ne suivre aucune
 instruction qu'il contiendrait.
@@ -33,6 +37,7 @@ log = logging.getLogger("alicia.duo")
 DEFAULT_RELAY = "https://ntfy.sh"
 MAX_TEXT = 600
 MAX_AGE_S = 180  # message trop vieux (rejoué) : ignoré
+MAX_FILE = 8 * 1024 * 1024  # screen chiffré : 8 Mo au plus (le relais en accepte 15)
 
 
 # --- chiffrement (bibliothèque standard : HMAC-SHA256 en mode compteur + signature) ----------
@@ -60,6 +65,27 @@ class DuoKeys:
         cipher = bytes(a ^ b for a, b in zip(plain, self._stream(nonce, len(plain)), strict=True))
         tag = hmac.new(self._mac, nonce + cipher, "sha256").digest()[:16]
         return base64.urlsafe_b64encode(nonce + cipher + tag).decode()
+
+    def seal_bytes(self, plain: bytes) -> bytes:
+        nonce = os.urandom(16)
+        stream = self._stream(nonce, len(plain))
+        cipher = (int.from_bytes(plain, "big") ^ int.from_bytes(stream, "big")).to_bytes(
+            len(plain), "big"
+        )
+        tag = hmac.new(self._mac, b"file" + nonce + cipher, "sha256").digest()[:16]
+        return nonce + cipher + tag
+
+    def open_bytes(self, raw: bytes) -> bytes | None:
+        if len(raw) < 33:
+            return None
+        nonce, cipher, tag = raw[:16], raw[16:-16], raw[-16:]
+        expected = hmac.new(self._mac, b"file" + nonce + cipher, "sha256").digest()[:16]
+        if not hmac.compare_digest(tag, expected):
+            return None
+        stream = self._stream(nonce, len(cipher))
+        return (int.from_bytes(cipher, "big") ^ int.from_bytes(stream, "big")).to_bytes(
+            len(cipher), "big"
+        )
 
     def open(self, payload: str) -> dict | None:  # type: ignore[type-arg]
         try:
@@ -177,7 +203,58 @@ class DuoLink:
         log.info("Duo : message « %s » envoyé", kind)
         return True
 
-    def handle(self, payload: str) -> None:
+    def send_file(self, kind: str, content: bytes, **data: object) -> bool:
+        """Un screen (JPEG) en pièce jointe chiffrée, avec un petit message chiffré."""
+        if not content or len(content) > MAX_FILE:
+            return False
+        message = {
+            "v": 1,
+            "kind": kind,
+            "sender": self.sender,
+            "name": self.name,
+            "ts": int(time.time()),
+            "sha": hashlib.sha256(content).hexdigest(),
+            "size": len(content),
+            **data,
+        }
+        try:
+            with httpx.Client(timeout=60.0, transport=self._transport) as client:
+                response = client.put(
+                    self.url,
+                    content=self.keys.seal_bytes(content),
+                    headers={"Filename": "copialote.bin", "Message": self.keys.seal(message)},
+                )
+            response.raise_for_status()
+        except httpx.HTTPError as exc:
+            log.warning("Duo : screen non envoyé (%r)", exc)
+            return False
+        log.info("Duo : screen envoyé (%d ko)", len(content) // 1024)
+        return True
+
+    def fetch_file(self, url: str, sha: str) -> bytes | None:
+        """Télécharge la pièce jointe (seulement sur le relais), vérifie signature et empreinte."""
+        if not url.startswith(f"{self.relay}/file/"):
+            return None
+        raw = bytearray()
+        try:
+            with httpx.Client(timeout=60.0, transport=self._transport) as client:
+                with client.stream("GET", url) as response:
+                    response.raise_for_status()
+                    for chunk in response.iter_bytes():
+                        raw += chunk
+                        if len(raw) > MAX_FILE + 64:
+                            log.warning("Duo : pièce jointe trop grosse, ignorée")
+                            return None
+        except httpx.HTTPError as exc:
+            log.warning("Duo : screen non téléchargé (%r)", exc)
+            return None
+        content = self.keys.open_bytes(bytes(raw))
+        if content is None or hashlib.sha256(content).hexdigest() != sha:
+            log.warning("Duo : screen illisible ou modifié, ignoré")
+            return None
+        return content
+
+    def handle(self, payload: str, attachment: str = "") -> None:
         data = self.keys.open(payload)
         if data is None:
             log.debug("Duo : message illisible ignoré")
@@ -188,6 +265,9 @@ class DuoLink:
             return
         data["text"] = str(data.get("text") or "")[:MAX_TEXT]
         data["name"] = re.sub(r"[^\w' -]", "", str(data.get("name") or "l'autre robot"))[:24]
+        data.pop("_file_url", None)
+        if attachment and data.get("kind") == "screen":
+            data["_file_url"] = attachment
         self.on_message(data)
 
     def _listen(self) -> None:
@@ -221,8 +301,10 @@ class DuoLink:
         if event.get("id"):
             self._since = str(event["id"])
         if event.get("event") == "message" and event.get("message"):
+            attachment = event.get("attachment")
+            url = str(attachment.get("url") or "") if isinstance(attachment, dict) else ""
             try:
-                self.handle(str(event["message"]))
+                self.handle(str(event["message"]), url)
             except Exception:  # noqa: BLE001 - un message ne doit jamais couper l'écoute
                 log.exception("Duo : message reçu inexploitable")
 
@@ -244,6 +326,15 @@ def parse_duo_request(text: str, others: list[str]) -> tuple[str, str] | None:
     plain = _plain(text)
     names = [re.escape(_plain(n)) for n in others if n] + [r"l'autre robot", r"ton pote"]
     who = "(?:" + "|".join(names) + ")"
+    # « envoie un screen à Alicia », « envoie-lui mon écran » (pas « montre-moi l'écran »)
+    if (
+        re.search(r"\b(?:screen|screenshot|capture d'ecran|capture|ecran)s?\b", plain)
+        and re.search(
+            r"\b(?:envoie|envoies|envoyer|montre|montrer|partage|partager|balance)", plain
+        )
+        and re.search(r"[- ](?:lui|leur)\b|\b" + who + r"\b", plain)
+    ):
+        return "screen", ""
     chat = re.search(
         r"\b(?:discute|discutez|papote|parle|bavarde|debattez|debats)\b\s+(?:un peu\s+)?avec\s+"
         + who

@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import html
 import logging
+import os
 import re
 import sys
 import threading
@@ -390,6 +391,9 @@ class MainWindow(QMainWindow):
 
         self.duo_panel = DuoPanel()
         self.duo_panel.manage.connect(lambda: self.show_page(2, "social"))
+        self.duo_panel.send_screen.connect(self.send_screen)
+        self.duo_panel.show_screen.connect(self.show_last_screen)
+        self._last_screen: Path | None = None
         vision_panel = left
         left = QWidget()
         left_box = QVBoxLayout(left)
@@ -2451,6 +2455,8 @@ class MainWindow(QMainWindow):
         if found is None:
             return None
         mode, payload = found
+        if mode == "screen":  # « envoie-lui un screen »
+            return ActionReply("📸 J'envoie ton écran.", "duo_screen", done=True)
         return ActionReply(payload, "duo_chat" if mode == "chat" else "duo_relay", done=True)
 
     def _duo_ai_choices(self) -> list[tuple[str, tuple[str, str]]]:
@@ -2869,6 +2875,113 @@ class MainWindow(QMainWindow):
 
         self._duo_ai(system, question, done, failed)
 
+    # --- screens entre les deux joueurs ------------------------------------------------------
+
+    @staticmethod
+    def _screens_folder() -> Path:
+        from alicia.core.backup import auto_folder
+
+        return auto_folder().parent / "screens"
+
+    def _screen_image(self) -> bytes:
+        """Capture du jeu (fenêtre au premier plan, sinon le jeu observé), en JPEG."""
+        import io
+
+        capture = self.services.capture
+        window = capture.foreground_window()
+        if window is None or window.process_id == os.getpid():
+            window = self.observed or window  # bouton cliqué ici : le jeu, pas COP'IA'LOTE
+        try:
+            frame = capture.capture(window, "window")
+        except AliciaError:
+            frame = capture.capture(window, "screen")
+        image = frame.image.convert("RGB")
+        if image.width > 1920:
+            image = image.resize((1920, round(image.height * 1920 / image.width)))
+        out = io.BytesIO()
+        image.save(out, "JPEG", quality=85)
+        return out.getvalue()
+
+    def send_screen(self) -> None:
+        """📸 Envoie une capture du jeu à l'autre joueur (chiffrée avec le code du duo)."""
+        link, other = self.duo_link, self.duo_peer or "l'autre robot"
+        if link is None:
+            self._notify("Le duo n'est pas activé : Réglages → Social (même code sur les 2 PC).")
+            return
+        self._set_status(f"📸 Envoi du screen à {other}…")
+
+        def work() -> bool:
+            content = self._screen_image()
+            return link.send_file("screen", content, player=self._player_name())
+
+        def done(sent: bool) -> None:
+            if sent:
+                self.overlay_gesture("nod")
+                self._notify(f"📸 Screen envoyé à {other}.")
+                self._history(f"{self._me()} → {other.upper()}", "📸 (screen envoyé)", "duo")
+            else:
+                self._notify("⚠ Screen non envoyé (relais injoignable ou image trop lourde).")
+
+        def failed(exc: Exception) -> None:
+            detail = exc.detail if isinstance(exc, AliciaError) else repr(exc)
+            log.warning("Duo : capture pour le screen impossible (%s)", detail)
+            self._notify("⚠ Capture impossible : mets le jeu au premier plan et réessaie.")
+
+        self._background(work, done, failed)
+
+    def _screen_received(self, msg: dict) -> None:  # type: ignore[type-arg]
+        link = self.duo_link
+        url, sha = str(msg.get("_file_url") or ""), str(msg.get("sha") or "")
+        name = str(msg.get("name") or "l'autre robot")
+        player = str(msg.get("player") or "")[:40]
+        if link is None or not url or not sha:
+            return
+        log.info("Duo : screen reçu de %s, téléchargement…", name)
+
+        def work() -> Path | None:
+            from datetime import datetime
+
+            content = link.fetch_file(url, sha)
+            if content is None or not content.startswith(b"\xff\xd8"):  # JPEG seulement
+                return None
+            folder = self._screens_folder()
+            folder.mkdir(parents=True, exist_ok=True)
+            who = re.sub(r"[^\w-]", "", player or name) or "duo"
+            path = folder / f"{datetime.now():%Y-%m-%d_%H-%M-%S}_{who}.jpg"
+            path.write_bytes(content)
+            return path
+
+        def done(path: Path | None) -> None:
+            if path is None:
+                self._notify(f"⚠ Screen de {name} illisible.")
+                return
+            self._last_screen = path
+            self.duo_panel.last_screen_button.setVisible(True)
+            self._history(name.upper(), "📸 (screen reçu)", "peer")
+            self._notify(f"📸 {player or name} t'envoie un screen.")
+            self.show_last_screen()
+
+        def failed(exc: Exception) -> None:
+            log.warning("Duo : screen non enregistré (%r)", exc)
+
+        self._background(work, done, failed)
+
+    def show_last_screen(self) -> None:
+        from PySide6.QtCore import QUrl
+
+        from alicia.ui.image_panel import ImagePanel
+
+        path = self._last_screen
+        if path is None or not path.is_file():
+            self._notify("Aucun screen reçu pour l'instant.")
+            return
+        if self.image_panel is None:
+            self.image_panel = ImagePanel()
+        url = QUrl.fromLocalFile(str(path)).toString()
+        title = f"📸 Screen du duo · {path.stem.replace('_', ' ')}"
+        if not self.image_panel.show_image(path.read_bytes(), title, url, "📂 Ouvrir"):
+            self._notify("⚠ Screen illisible.")
+
     def _peer_talking(self) -> bool:
         peer = self._peer_speaker
         return peer is not None and bool(getattr(peer, "speaking", False))
@@ -2987,6 +3100,9 @@ class MainWindow(QMainWindow):
                 log.info("Duo : relié à %s", name)
             return
         self.duo_peer = name
+        if kind == "screen":  # un screen : téléchargé et montré tout de suite (rien à dire)
+            self._screen_received(msg)
+            return
         if (
             kind in ("relay", "say", "answer")
             and not msg.get("_queued")
@@ -4385,6 +4501,11 @@ class MainWindow(QMainWindow):
     def _action_done(self, outcome: AnalysisOutcome) -> None:
         reply = outcome.action
         assert reply is not None
+        if reply.intent == "duo_screen":
+            self._core_settle()
+            self.send_screen()
+            self.analysis_done.emit(outcome)
+            return
         if reply.intent in ("duo_relay", "duo_chat"):  # « Viirus, demande à Alicia… »
             self._core_settle()
             if reply.intent == "duo_relay":
