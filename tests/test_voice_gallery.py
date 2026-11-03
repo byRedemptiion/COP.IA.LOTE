@@ -242,3 +242,33 @@ def test_bottom_voice_list_follows_the_catalogue(qt_app, tmp_path, monkeypatch):
         assert window.engine_box.currentData() == "gemini"
     finally:
         window.close()
+
+
+def test_catalogue_can_choose_the_backup_voice(qt_app, tmp_path, monkeypatch):
+    from alicia.app import build_services
+    from alicia.core.config import load_settings
+    from alicia.ui.main_window import MainWindow
+
+    monkeypatch.chdir(tmp_path)
+    window = MainWindow(
+        build_services(load_settings(environ={"ALICE_AI_PROVIDER": "fake"}), demo=True)
+    )
+    page = window.settings_page
+    try:
+        window.show_page(2)
+        window.change_setting("voice_choose", "gemini|Kore")
+        assert "Sa voix" in page.voice_summary.text() and "Kore" in page.voice_summary.text()
+        # « Le bouton Choisir règle : sa voix de secours »
+        page.gallery_target.setCurrentIndex(page.gallery_target.findData("backup"))
+        assert page.gallery_buttons["edge|fr-FR-HenriNeural"].text() == "Secours"
+        page.gallery_buttons["edge|fr-FR-HenriNeural"].click()
+        voice = window.services.settings.voice
+        assert voice.backup_voice == "edge:fr-FR-HenriNeural"
+        assert voice.tts_engine == "gemini" and voice.gemini_voice == "Kore"  # inchangée
+        assert page.gallery_buttons["edge|fr-FR-HenriNeural"].text() == "✓ Secours"
+        assert "Henri" in page.voice_summary.text()
+        assert page.backup_engine_box.currentData() == "edge"  # les listes suivent
+        page.gallery_target.setCurrentIndex(page.gallery_target.findData("main"))
+        assert page.gallery_buttons["gemini|Kore"].text() == "✓ Choisie"
+    finally:
+        window.close()
