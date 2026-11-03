@@ -226,3 +226,19 @@ def test_voice_can_use_its_own_key(qt_app, tmp_path, monkeypatch, caplog):
         window.close()
     env = load_settings(environ={"VOICE_GEMINI_API_KEY": "g-voice", "GEMINI_API_KEY": "g-ai"})
     assert env.voice.gemini_key.get() == "g-voice" and env.voice.own_keys == ("gemini",)
+
+
+def test_bottom_voice_list_follows_the_catalogue(qt_app, tmp_path, monkeypatch):
+    from alicia.app import build_services
+    from alicia.core.config import load_settings
+    from alicia.ui.main_window import MainWindow
+
+    monkeypatch.chdir(tmp_path)
+    window = MainWindow(
+        build_services(load_settings(environ={"ALICE_AI_PROVIDER": "fake"}), demo=True)
+    )
+    try:
+        window.change_setting("voice_choose", "gemini|Puck")
+        assert window.engine_box.currentData() == "gemini"
+    finally:
+        window.close()

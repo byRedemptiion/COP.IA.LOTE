@@ -462,6 +462,7 @@ class MainWindow(QMainWindow):
         self.engine_box.addItem("Edge (en ligne)", "edge")
         self.engine_box.addItem("Kokoro (locale)", "kokoro")
         self.engine_box.addItem("OpenAI (réaliste)", "openai")
+        self.engine_box.addItem("Gemini (ta clé)", "gemini")
         self.engine_box.addItem("VIIRUS (robot)", "veris")
         self.engine_box.addItem("ALICIA (voix C)", "voixc")
         self.engine_box.setCurrentIndex(
@@ -1185,6 +1186,11 @@ class MainWindow(QMainWindow):
 
         voice = replace(self.services.settings.voice, **changes)  # type: ignore[arg-type]
         self.services.settings = replace(self.services.settings, voice=voice)
+        box = getattr(self, "engine_box", None)
+        if "tts_engine" in changes and box is not None:  # la liste du bas suit le catalogue
+            box.blockSignals(True)
+            box.setCurrentIndex(max(0, box.findData(voice.tts_engine)))
+            box.blockSignals(False)
         for key, value in changes.items():
             self._save("voice", key, value)
         speaker = self.services.speaker
