@@ -21,6 +21,9 @@ def isolated_env(tmp_path, monkeypatch):
     from alicia.core import usage
 
     usage.use_file(None)  # compteur de consommation : dans le dossier du test
+    from alicia.core.audio import custom_voices
+
+    custom_voices.use_file(None)
     monkeypatch.setattr(voice_design, "on_notice", None)
     yield
 

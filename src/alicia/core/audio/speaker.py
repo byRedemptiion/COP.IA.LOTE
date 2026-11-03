@@ -359,7 +359,7 @@ def _local_fallback(settings: VoiceSettings) -> Synthesizer:
     return veris_synthesizer(settings.kokoro_speed, 1.30, 220.0, 3800.0, metallic=0.0)
 
 
-BACKUP_ENGINES = ("local", "edge", "gemini", "openai")
+BACKUP_ENGINES = ("local", "edge", "gemini", "openai", "custom")  # custom : « Mes voix »
 
 
 def split_backup(value: str) -> tuple[str, str]:
@@ -379,7 +379,19 @@ def _profile_fallback(settings: VoiceSettings) -> Synthesizer:
     engine, name = split_backup(settings.backup_voice)
     if engine == "local" or not name:
         return local
-    if engine == "gemini":
+    if engine == "custom":  # une de « Mes voix » (voix + réglages enregistrés)
+        from alicia.core.audio.custom_voices import get_custom, voice_settings
+
+        custom = get_custom(name)
+        if custom is None:
+            return local
+        backup = backup_synthesizer(voice_settings(settings, custom))
+    elif engine == "gemini" and name.startswith("voice_"):  # voix sur mesure Gemini 3.8
+        from alicia.core.audio import voice_design
+
+        key = settings.gemini_key.get() or ""
+        backup = voice_design.designed_synthesizer(key, name, "ton naturel et vivant")
+    elif engine == "gemini":
         backup = gemini_synthesizer(replace(settings, gemini_voice=name), fallback=False)
     elif engine == "openai":
         backup = openai_synthesizer(replace(settings, openai_voice=name), fallback=False)
@@ -394,6 +406,30 @@ def _profile_fallback(settings: VoiceSettings) -> Synthesizer:
             return local(text)
 
     return synthesize
+
+
+def backup_synthesizer(settings: VoiceSettings) -> Synthesizer:
+    """La voix ``settings`` (avec ses réglages fins) sans secours imbriqué : pour servir de
+    voix de secours elle-même."""
+    pitch, metal, bright = settings.fx_pitch, settings.fx_metal, settings.fx_bright
+    reverb = settings.fx_reverb
+    if settings.tts_engine == "gemini":
+        base = gemini_synthesizer(settings, fallback=False)
+    elif settings.tts_engine == "openai":
+        base = openai_synthesizer(settings, fallback=False)
+    else:
+        ratio = 2 ** (pitch / 12)
+        slowed = abs(pitch) >= 0.01
+        rate = _slowed_rate(settings.tts_rate, ratio) if slowed else settings.tts_rate
+        return with_fx(
+            edge_synthesizer(settings.tts_voice, rate),
+            pitch,
+            metal,
+            bright,
+            reverb,
+            pre_slowed=slowed,
+        )
+    return with_fx(base, pitch, metal, bright, reverb)
 
 
 def _designed(settings: VoiceSettings) -> Synthesizer:
@@ -517,19 +553,65 @@ FX_PRESETS: dict[str, tuple[float, int, int]] = {
 }
 
 
-def fx_neutral(pitch: float, metal: int, bright: int) -> bool:
-    return abs(pitch) < 0.01 and metal <= 0 and bright == 50
+def fx_neutral(pitch: float, metal: int, bright: int, reverb: int = 0) -> bool:
+    return abs(pitch) < 0.01 and metal <= 0 and bright == 50 and reverb <= 0
+
+
+def add_reverb(samples: np.ndarray, amount: int, rate: int = TTS_SAMPLE_RATE) -> np.ndarray:
+    """Réverbération (0-100 %) : petite pièce → grande salle. Réponse impulsionnelle de bruit
+    à décroissance exponentielle (douce, sans écho métallique), convoluée par FFT."""
+    amount = max(0, min(100, int(amount)))
+    if amount <= 0 or len(samples) < 32:
+        return samples
+    dry = samples.astype(np.float32)
+    if samples.dtype == np.int16:
+        dry /= 32768.0
+    decay = 0.25 + amount / 100 * 1.2  # secondes pour -60 dB
+    length = int(rate * min(2.0, decay * 1.1))
+    t = np.arange(length, dtype=np.float32) / rate
+    rng = np.random.default_rng(7)  # même salle à chaque phrase
+    impulse = rng.standard_normal(length).astype(np.float32) * np.exp(-6.9 * t / decay)
+    impulse[: int(rate * 0.012)] = 0.0  # pré-délai : la voix reste devant
+    impulse /= float(np.sqrt(np.sum(impulse**2))) or 1.0
+    size = len(dry) + length - 1
+    n = 1 << (size - 1).bit_length()
+    wet = np.fft.irfft(np.fft.rfft(dry, n) * np.fft.rfft(impulse, n), n)[:size]
+    tail = int(rate * min(1.0, decay * 0.6))  # un peu de queue après la dernière syllabe
+    mix = amount / 100 * 0.55
+    out = np.zeros(len(dry) + tail, dtype=np.float32)
+    out[: len(dry)] = dry * (1.0 - 0.35 * mix)
+    out += wet[: len(out)] * mix
+    peak = float(np.abs(out).max(initial=0))
+    if peak > 0.89:
+        out *= 0.89 / peak
+    return (np.clip(out, -1.0, 1.0) * 32767).astype(np.int16)
 
 
 def with_fx(
-    base: Synthesizer, pitch: float, metal: int, bright: int, *, pre_slowed: bool = False
+    base: Synthesizer,
+    pitch: float,
+    metal: int,
+    bright: int,
+    reverb: int = 0,
+    *,
+    pre_slowed: bool = False,
 ) -> Synthesizer:
-    """Hauteur (demi-tons), métal (0-100 %) et clarté (0-100 %, 50 = neutre) sur une voix.
+    """Hauteur (demi-tons), métal (0-100 %), clarté (0-100 %, 50 = neutre) et réverbération
+    (0-100 %) sur une voix.
 
     ``pre_slowed`` : la voix est déjà générée ralentie du bon facteur (Edge sait le faire,
     c'est plus propre) ; sinon on l'étire d'abord sans changer sa hauteur."""
-    if fx_neutral(pitch, metal, bright):
+    if fx_neutral(pitch, metal, bright, reverb):
         return base
+    if fx_neutral(pitch, metal, bright):  # réverbération seule : la voix reste intacte
+
+        def reverb_only(text: str) -> np.ndarray:
+            return add_reverb(base(text), reverb)
+
+        warm = getattr(base, "warm_up", None)
+        if warm is not None:
+            reverb_only.warm_up = warm  # type: ignore[attr-defined]
+        return reverb_only
     ratio = 2 ** (pitch / 12)
     bright = max(0, min(100, bright))
     highpass, presence = 80.0 + bright * 3.0, 2500.0 + bright * 30.0
@@ -538,13 +620,14 @@ def with_fx(
         samples = base(text)
         if not pre_slowed and abs(pitch) >= 0.01:
             samples = time_stretch(samples, 1 / ratio)
-        return robot_voice(
+        out = robot_voice(
             samples,
             ratio,
             highpass_hz=highpass,
             presence_hz=presence,
             metallic=max(0, min(100, metal)) / 100,
         )
+        return add_reverb(out, reverb)
 
     warm = getattr(base, "warm_up", None)
     if warm is not None:
@@ -569,23 +652,24 @@ def _slowed_rate(rate: str, ratio: float) -> str:
 
 def make_synthesizer(settings: VoiceSettings) -> Synthesizer:
     pitch, metal, bright = settings.fx_pitch, settings.fx_metal, settings.fx_bright
+    reverb = settings.fx_reverb
     designed = settings.tts_engine == "gemini" and settings.gemini_voice.startswith("voice_")
     if (
         not designed  # voix sur mesure : déjà faite comme on la veut, aucun effet sonore
-        and not fx_neutral(pitch, metal, bright)
+        and not fx_neutral(pitch, metal, bright, reverb)
         and settings.tts_engine in ("edge", "gemini", "openai", "kokoro")
     ):
         if settings.tts_engine == "edge":
             ratio = 2 ** (pitch / 12)
             base = edge_synthesizer(settings.tts_voice, _slowed_rate(settings.tts_rate, ratio))
-            return with_fx(base, pitch, metal, bright, pre_slowed=True)
+            return with_fx(base, pitch, metal, bright, reverb, pre_slowed=abs(pitch) >= 0.01)
         if settings.tts_engine == "gemini":
             base = gemini_synthesizer(settings)  # l'effet choisi devient aussi une consigne
         elif settings.tts_engine == "openai":
             base = openai_synthesizer(settings)
         else:
             base = kokoro_synthesizer(settings.kokoro_voice, settings.kokoro_speed)
-        return with_fx(base, pitch, metal, bright)
+        return with_fx(base, pitch, metal, bright, reverb)
     if settings.tts_engine == "veris":
         return veris_synthesizer(settings.kokoro_speed)
     if settings.tts_engine == "voixc":

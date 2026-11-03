@@ -195,6 +195,7 @@ class VoiceSettings:
     fx_pitch: float = 0.0  # effet : hauteur en demi-tons (-6 à +6)
     fx_metal: int = 0  # effet : timbre métallique de robot (0-100 %)
     fx_bright: int = 50  # effet : clarté (0-100 %, 50 = neutre)
+    fx_reverb: int = 0  # effet : réverbération (0-100 %)
     gemini_tts_model: str = "gemini-3.1-flash-tts-preview"
     gemini_key: Secret = field(default_factory=lambda: Secret(None))  # même clé que l'IA Gemini
 
@@ -431,10 +432,15 @@ def _fx(voice: dict) -> dict:  # type: ignore[type-arg]
         bright = int(voice.get("fx_bright", bright))
     except (TypeError, ValueError):
         pass
+    try:
+        reverb = int(voice.get("fx_reverb", 0))
+    except (TypeError, ValueError):
+        reverb = 0
     return {
         "fx_pitch": max(-6.0, min(6.0, round(pitch * 2) / 2)),
         "fx_metal": max(0, min(100, metal)),
         "fx_bright": max(0, min(100, bright)),
+        "fx_reverb": max(0, min(100, reverb)),
     }
 
 

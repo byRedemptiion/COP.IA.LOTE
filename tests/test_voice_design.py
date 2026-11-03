@@ -219,6 +219,7 @@ def test_old_effect_setting_becomes_slider_values(tmp_path):
         "fx_pitch": 4.5,
         "fx_metal": 50,
         "fx_bright": 60,
+        "fx_reverb": 0,
     }
     assert _fx({"voice_effect": "enfant", "fx_pitch": 9, "fx_metal": "x"})["fx_pitch"] == 6.0
     assert _fx({})["fx_pitch"] == 0.0

@@ -38,7 +38,7 @@ def test_new_tabs_and_old_names_still_work(qt_app, tmp_path, monkeypatch):
                 page.player_name,
                 page.engine_box,
                 page.volume,
-                page.effect_box,
+                page.cv_sliders["reverb"][0],
                 page.anims_folder,
             ],
             "ai": [page.fast_box, page.deep_box, page.ollama_model],

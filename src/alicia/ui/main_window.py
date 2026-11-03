@@ -148,6 +148,12 @@ class MainWindow(QMainWindow):
         super().__init__()
         self.services = services
         self.log_file = log_file
+        try:  # effet réglé directement sur sa voix (avant v0.17) : repris dans « Mes voix »
+            from alicia.core.audio.custom_voices import migrate
+
+            migrate(services.settings.voice)
+        except OSError:
+            pass
         self.pool = QThreadPool.globalInstance()
         self.windows: list[WindowInfo] = []
         self.observed: WindowInfo | None = None
@@ -1229,6 +1235,7 @@ class MainWindow(QMainWindow):
                 "fx_pitch",
                 "fx_metal",
                 "fx_bright",
+                "fx_reverb",
             } & changes.keys():
                 speaker.synthesizer = make_synthesizer(voice)
                 speaker.warm_up_async()
@@ -1308,7 +1315,6 @@ class MainWindow(QMainWindow):
             self._update_voice(
                 voice_effect=effect, fx_pitch=pitch, fx_metal=metal, fx_bright=bright
             )
-            self.settings_page.load_fx(self.services.settings.voice)
         elif key in ("fx_pitch", "fx_metal", "fx_bright"):
             number = float(value) if key == "fx_pitch" else int(value)  # type: ignore[call-overload,arg-type]
             self._update_voice(**{key: number})
@@ -1323,9 +1329,40 @@ class MainWindow(QMainWindow):
 
             engine, _, name = str(value).partition("|")
             field = {"gemini": "gemini_voice", "openai": "openai_voice"}.get(engine, "tts_voice")
-            self._update_voice(tts_engine=engine, **{field: name})
+            # Une voix du catalogue telle quelle : sans réglages fins (ceux-là vivent dans
+            # « Mes voix »)
+            self._update_voice(
+                tts_engine=engine,
+                voice_effect="",
+                voice_style="",
+                fx_pitch=0.0,
+                fx_metal=0,
+                fx_bright=50,
+                fx_reverb=0,
+                **{field: name},
+            )
             self._load_settings_page()
-            self._notify(f"Voix choisie : {voice_name(name)}")
+            self._notify(f"Voix principale : {voice_name(name)}")
+        elif key in ("custom_preview", "custom_listen"):
+            self.preview_custom_voice(value)
+        elif key == "custom_save":
+            self.save_custom_voice(dict(value))  # type: ignore[call-overload]
+        elif key == "custom_main":
+            from alicia.core.audio.custom_voices import get_custom, main_changes
+
+            custom = get_custom(str(value))
+            if custom is not None:
+                self._update_voice(**main_changes(custom))
+                self._load_settings_page()
+                self._notify(f"Voix principale : {custom.name}")
+        elif key == "custom_delete":
+            from alicia.core.audio.custom_voices import delete_custom
+
+            delete_custom(str(value))
+            if self.services.settings.voice.backup_voice == f"custom:{value}":
+                self._update_voice(backup_voice="edge:fr-FR-RemyMultilingualNeural")
+            self.settings_page.fill_custom_voices()
+            self._load_settings_page()
         elif key == "voice_rename":
             self.rename_designed_voice(str(value))
         elif key == "voice_delete":
@@ -1699,7 +1736,17 @@ class MainWindow(QMainWindow):
             )
             return
         field = {"gemini": "gemini_voice", "openai": "openai_voice"}.get(engine, "tts_voice")
-        trial = replace(voice, tts_engine=engine, **{field: name})  # type: ignore[arg-type]
+        trial = replace(  # la voix telle quelle, sans réglages fins
+            voice,
+            tts_engine=engine,
+            voice_effect="",
+            voice_style="",
+            fx_pitch=0.0,
+            fx_metal=0,
+            fx_bright=50,
+            fx_reverb=0,
+            **{field: name},  # type: ignore[arg-type]
+        )
         speaker = self.services.speaker
         text = (
             f"Salut, moi c'est {current_persona().name} ! Attention, un ennemi arrive sur ta "
@@ -1715,6 +1762,87 @@ class MainWindow(QMainWindow):
             )
             return
         self.stop_voice_button.setEnabled(True)
+
+    def _draft_voice(self, value: object):  # type: ignore[no-untyped-def]
+        """Une voix de « Mes voix » (identifiant) ou celle du créateur (dict)."""
+        from alicia.core.audio.custom_voices import CustomVoice, get_custom
+
+        if isinstance(value, dict):
+            try:
+                return CustomVoice(
+                    id=str(value.get("id") or ""),
+                    name=str(value.get("name") or ""),
+                    engine=str(value.get("engine") or "edge"),
+                    voice=str(value.get("voice") or ""),
+                    pitch=float(value.get("pitch") or 0.0),  # type: ignore[arg-type]
+                    metal=int(value.get("metal") or 0),  # type: ignore[call-overload]
+                    bright=int(value.get("bright", 50)),  # type: ignore[call-overload]
+                    reverb=int(value.get("reverb") or 0),  # type: ignore[call-overload]
+                    style=str(value.get("style") or ""),
+                ).clamped()
+            except (TypeError, ValueError):
+                return None
+        return get_custom(str(value))
+
+    def _voice_ready(self, engine: str) -> bool:
+        voice = self.services.settings.voice
+        state = self.settings_page.gallery_state
+        if engine == "openai" and not voice.openai_key:
+            state.setText("⚠ Les voix ChatGPT demandent une clé OpenAI (IA → Avancé).")
+            return False
+        if engine == "gemini" and not voice.gemini_key:
+            state.setText("⚠ Les voix Gemini demandent une clé Gemini (IA → Avancé).")
+            return False
+        return True
+
+    def preview_custom_voice(self, value: object) -> None:
+        """▶ d'une voix réglée (créateur ou Mes voix) : la phrase d'essai avec ses réglages."""
+        from alicia.core.audio.custom_voices import voice_settings
+        from alicia.core.audio.speaker import make_synthesizer
+
+        custom = self._draft_voice(value)
+        if custom is None or not custom.voice or not self._voice_ready(custom.engine):
+            return
+        trial = voice_settings(self.services.settings.voice, custom)
+        speaker = self.services.speaker
+        text = (
+            f"Salut, moi c'est {current_persona().name} ! Attention, un ennemi arrive sur ta "
+            "gauche : recule et soigne-toi, je surveille la carte."
+        )
+        self.settings_page.gallery_state.setText(f"▶ {custom.name or 'Essai'}…")
+        if speaker is None or not speaker.speak(text, make_synthesizer(trial)):
+            self.settings_page.gallery_state.setText(
+                "⚠ Voix indisponible : vérifie la sortie audio."
+            )
+            return
+        self.stop_voice_button.setEnabled(True)
+
+    def save_custom_voice(self, value: dict) -> None:  # type: ignore[type-arg]
+        from alicia.core.audio.custom_voices import (
+            current_custom,
+            main_changes,
+            save_custom,
+        )
+
+        custom = self._draft_voice(value)
+        if custom is None or not custom.voice:
+            return
+        was_main = current_custom(self.services.settings.voice)
+        try:
+            saved = save_custom(custom)
+        except OSError as exc:
+            log.error("Mes voix : enregistrement impossible (%r)", exc)
+            self._notify("⚠ Voix non enregistrée.")
+            return
+        if was_main is not None and was_main.id == saved.id:
+            self._update_voice(**main_changes(saved))  # c'était sa voix : elle suit la retouche
+        page = self.settings_page
+        page._cv_editing = saved.id
+        page.fill_custom_voices()
+        self._load_settings_page()
+        page.gallery_state.setText(
+            f"💾 « {saved.name} » enregistrée dans Mes voix : choisis-la en Principale ou Secours."
+        )
 
     def save_voice_key(self, provider: str, key: str) -> None:
         """Clé dédiée à la voix (Gemini ou OpenAI), rangée dans le .env ; jamais journalisée."""
@@ -2240,7 +2368,8 @@ class MainWindow(QMainWindow):
             "gemini": voice.gemini_voice,
             "openai": voice.openai_voice,
             "effect": voice.voice_effect,
-            "fx": [voice.fx_pitch, voice.fx_metal, voice.fx_bright],
+            "fx": [voice.fx_pitch, voice.fx_metal, voice.fx_bright, voice.fx_reverb],
+            "style": voice.voice_style,
         }
         return {"player": self._player_name(), "phonetic": player().phonetic, "voice": shared}
 
@@ -2794,9 +2923,11 @@ class MainWindow(QMainWindow):
         wanted = str(shared.get("engine") or engine)
         fx = shared.get("fx") if isinstance(shared.get("fx"), list) else None
         pitch, metal, bright = FX_PRESETS.get(str(shared.get("effect") or ""), (0.0, 0, 50))
-        if fx and len(fx) == 3:
+        reverb = 0
+        if fx and len(fx) in (3, 4):
             try:
                 pitch, metal, bright = float(fx[0]), int(fx[1]), int(fx[2])
+                reverb = max(0, min(100, int(fx[3]))) if len(fx) == 4 else 0
             except (TypeError, ValueError):
                 pass
         gemini = str(shared.get("gemini") or "")
@@ -2817,10 +2948,11 @@ class MainWindow(QMainWindow):
             gemini_voice=gemini if wanted == "gemini" else mine.gemini_voice,
             openai_voice=str(shared.get("openai") or mine.openai_voice),
             voice_effect=str(shared.get("effect") or ""),
-            voice_style="",
+            voice_style=" ".join(str(shared.get("style") or "").split())[:300],
             fx_pitch=pitch,
             fx_metal=metal,
             fx_bright=bright,
+            fx_reverb=reverb,
             backup_voice=f"edge:{edge_default}",
         )
 

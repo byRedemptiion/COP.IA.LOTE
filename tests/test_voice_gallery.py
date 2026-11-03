@@ -89,13 +89,13 @@ def test_gallery_previews_without_choosing_then_chooses(qt_app, tmp_path, monkey
         window.change_setting("voice_choose", "gemini|Leda")
         voice = window.services.settings.voice
         assert voice.tts_engine == "gemini" and voice.gemini_voice == "Leda"
-        assert page.gallery_buttons["gemini|Leda"].text() == "✓ Choisie"
+        assert page.gallery_buttons["gemini|Leda"].text() == "✓ Principale"
         saved = tomllib.loads((data_dir() / "alicia.toml").read_text("utf-8"))
         assert saved["voice"]["tts_engine"] == "gemini" and saved["voice"]["gemini_voice"] == "Leda"
 
         window.change_setting("voice_choose", "edge|fr-FR-HenriNeural")
         assert window.services.settings.voice.tts_voice == "fr-FR-HenriNeural"
-        assert page.gallery_buttons["gemini|Leda"].text() == "Choisir"
+        assert page.gallery_buttons["gemini|Leda"].text() == "Principale"
     finally:
         window.close()
 
@@ -257,18 +257,110 @@ def test_catalogue_can_choose_the_backup_voice(qt_app, tmp_path, monkeypatch):
     try:
         window.show_page(2)
         window.change_setting("voice_choose", "gemini|Kore")
-        assert "Sa voix" in page.voice_summary.text() and "Kore" in page.voice_summary.text()
-        # « Le bouton Choisir règle : sa voix de secours »
-        page.gallery_target.setCurrentIndex(page.gallery_target.findData("backup"))
-        assert page.gallery_buttons["edge|fr-FR-HenriNeural"].text() == "Secours"
-        page.gallery_buttons["edge|fr-FR-HenriNeural"].click()
+        assert "Principale" in page.voice_summary.text() and "Kore" in page.voice_summary.text()
+        assert page.backup_buttons["edge|fr-FR-HenriNeural"].text() == "Secours"
+        page.backup_buttons["edge|fr-FR-HenriNeural"].click()
         voice = window.services.settings.voice
         assert voice.backup_voice == "edge:fr-FR-HenriNeural"
         assert voice.tts_engine == "gemini" and voice.gemini_voice == "Kore"  # inchangée
-        assert page.gallery_buttons["edge|fr-FR-HenriNeural"].text() == "✓ Secours"
+        assert page.backup_buttons["edge|fr-FR-HenriNeural"].text() == "✓ Secours"
         assert "Henri" in page.voice_summary.text()
         assert page.backup_engine_box.currentData() == "edge"  # les listes suivent
-        page.gallery_target.setCurrentIndex(page.gallery_target.findData("main"))
-        assert page.gallery_buttons["gemini|Kore"].text() == "✓ Choisie"
+        assert page.main_buttons["gemini|Kore"].text() == "✓ Principale"
     finally:
         window.close()
+
+
+def test_my_voices_any_engine_with_fine_tuning(qt_app, tmp_path, monkeypatch):
+    from alicia.app import build_services
+    from alicia.core.audio.custom_voices import load_custom
+    from alicia.core.config import load_settings
+    from alicia.ui.main_window import MainWindow
+
+    monkeypatch.chdir(tmp_path)
+    settings = load_settings(environ={"ALICE_AI_PROVIDER": "fake"})
+    speaker = RecordingSpeaker(settings.voice)
+    window = MainWindow(build_services(settings, demo=True, speaker=speaker))
+    page = window.settings_page
+    try:
+        window.show_page(2)
+        assert page.gallery_sections["designed"].toggle.isChecked()  # ouverte d'office
+        # Créateur : une voix Edge + hauteur, métal, réverbération
+        page.cv_engine.setCurrentIndex(page.cv_engine.findData("edge"))
+        page.cv_voice.setCurrentIndex(page.cv_voice.findData("fr-FR-HenriNeural"))
+        page.cv_sliders["pitch"][0].setValue(-4)
+        page.cv_sliders["metal"][0].setValue(30)
+        page.cv_sliders["reverb"][0].setValue(40)
+        page.cv_name.setText("Henri caverne")
+        window.change_setting("custom_preview", page.custom_draft())
+        assert speaker.said and callable(speaker.said[-1][1])  # écoute d'essai
+        assert window.services.settings.voice.fx_reverb == 0  # rien n'est changé
+        page._cv_save()
+        (saved,) = load_custom()
+        assert (saved.name, saved.engine, saved.voice) == (
+            "Henri caverne",
+            "edge",
+            "fr-FR-HenriNeural",
+        )
+        assert (saved.pitch, saved.metal, saved.reverb) == (-2.0, 30, 40)
+        key = f"custom|{saved.id}"
+        # Principale
+        page.main_buttons[key].click()
+        voice = window.services.settings.voice
+        assert voice.tts_engine == "edge" and voice.tts_voice == "fr-FR-HenriNeural"
+        assert (voice.fx_pitch, voice.fx_metal, voice.fx_reverb) == (-2.0, 30, 40)
+        assert page.main_buttons[key].text() == "✓ Principale"
+        assert "Henri caverne" in page.voice_summary.text()
+        # Secours
+        page.backup_buttons[key].click()
+        assert window.services.settings.voice.backup_voice == f"custom:{saved.id}"
+        assert page.backup_buttons[key].text() == "✓ Secours"
+        # Retouche : enregistrée sous le même nom, sa voix principale suit
+        page.edit_custom(saved.id)
+        page.cv_sliders["reverb"][0].setValue(10)
+        page._cv_save()
+        assert len(load_custom()) == 1 and window.services.settings.voice.fx_reverb == 10
+        # Une voix du catalogue telle quelle : sans réglages
+        window.change_setting("voice_choose", "edge|fr-FR-DeniseNeural")
+        voice = window.services.settings.voice
+        assert voice.fx_pitch == 0 and voice.fx_reverb == 0 and voice.fx_metal == 0
+        window.change_setting("custom_delete", saved.id)
+        assert not load_custom() and window.services.settings.voice.backup_voice.startswith("edge:")
+    finally:
+        window.close()
+
+
+def test_custom_backup_voice_keeps_its_settings(monkeypatch):
+    from alicia.core.audio.custom_voices import CustomVoice, save_custom
+
+    custom = save_custom(CustomVoice("", "Grave", "edge", "fr-FR-HenriNeural", reverb=50))
+    calls = []
+
+    def edge(voice, rate):
+        calls.append(voice)
+        return lambda _text: _tone(0.5)
+
+    monkeypatch.setattr(speaker_module, "edge_synthesizer", edge)
+    settings = VoiceSettings(backup_voice=f"custom:{custom.id}")
+    backup = speaker_module._profile_fallback(settings)
+    out = backup("Salut")
+    assert calls[-1] == "fr-FR-HenriNeural" and len(out) > len(_tone(0.5))  # queue de réverb
+
+
+def test_reverb_adds_a_tail_and_stays_in_range():
+    dry = _tone(0.5)
+    wet = speaker_module.add_reverb(dry, 60)
+    assert wet.dtype == np.int16 and len(wet) > len(dry)
+    assert np.abs(wet[len(dry) :]).max() > 0  # la salle résonne après la voix
+    assert speaker_module.add_reverb(dry, 0) is dry
+
+
+def test_old_effect_becomes_one_of_my_voices():
+    from alicia.core.audio.custom_voices import load_custom, matches, migrate
+
+    settings = VoiceSettings(tts_engine="gemini", gemini_voice="Puck", fx_pitch=2.5, fx_metal=50)
+    migrate(settings)
+    (voice,) = load_custom()
+    assert voice.engine == "gemini" and voice.voice == "Puck" and matches(settings, voice)
+    migrate(settings)  # une seule fois
+    assert len(load_custom()) == 1

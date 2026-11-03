@@ -118,7 +118,7 @@ def _title(text: str) -> QLabel:
     return label
 
 
-def _collapsible(title: str, body: QWidget) -> QWidget:
+def _collapsible(title: str, body: QWidget, opened: bool = False) -> QWidget:
     """Section repliable : « ▸ Avancé » ouvre / ferme le panneau ``body``."""
     holder = QWidget()
     box = QVBoxLayout(holder)
@@ -135,6 +135,8 @@ def _collapsible(title: str, body: QWidget) -> QWidget:
         toggle.setText(f"{'▾' if on else '▸'}  {title}")
 
     toggle.toggled.connect(flip)
+    if opened:
+        toggle.setChecked(True)
     box.addWidget(toggle, 0, Qt.AlignmentFlag.AlignLeft)
     box.addWidget(body)
     holder.toggle = toggle  # type: ignore[attr-defined]
@@ -146,6 +148,8 @@ def _fx_text(key: str, value: int) -> str:
         return f"{value / 2:+g} demi-ton{'s' if abs(value) > 2 else ''}" if value else "naturelle"
     if key == "fx_bright":
         return "neutre" if value == 50 else f"{value} %"
+    if key == "fx_reverb":
+        return f"{value} %" if value else "aucune"
     return f"{value} %" if value else "aucun"
 
 
@@ -587,6 +591,7 @@ class SettingsPage(QWidget):
             ("edge", "Edge (gratuit, sans quota)"),
             ("gemini", "Gemini (ta clé Gemini)"),
             ("openai", "ChatGPT (ta clé OpenAI)"),
+            ("custom", "Mes voix (voix réglées)"),
         ):
             self.backup_engine_box.addItem(label, key)
         self.backup_voice_box = QComboBox()
@@ -1238,27 +1243,6 @@ class SettingsPage(QWidget):
 
     # --- valeurs --------------------------------------------------------------------------------
 
-    def _emit_fx(self, key: str, value: int) -> None:
-        if not self._fx_loading:
-            self._emit(key, value / 2 if key == "fx_pitch" else value)
-
-    _fx_loading = False
-
-    def load_fx(self, voice: VoiceSettings) -> None:
-        """Place les curseurs d'effet (sans rien déclencher)."""
-        self._fx_loading = True
-        try:
-            for key, value in (
-                ("fx_pitch", round(voice.fx_pitch * 2)),
-                ("fx_metal", voice.fx_metal),
-                ("fx_bright", voice.fx_bright),
-            ):
-                slider, label = self.fx_sliders[key]
-                slider.setValue(int(value))
-                label.setText(_fx_text(key, int(value)))
-        finally:
-            self._fx_loading = False
-
     def _send_voice_key(self) -> None:
         key = self.voice_key_input.text().strip()
         if key:
@@ -1288,170 +1272,323 @@ class SettingsPage(QWidget):
         self._emit("wake_sensitivity", value)
 
     def _voice_gallery(self) -> QWidget:
-        """Toutes les voix, chacune avec ▶ Écouter et Choisir."""
+        """Catalogue : « Voix sur mesure » (Mes voix + créateur), puis toutes les voix, chacune
+        avec ▶ Écouter, Principale et Secours."""
         panel, grid = _panel()
         grid.addWidget(_title("🎧  CATALOGUE DES VOIX"), 0, 0, 1, 4)
-        head = QWidget()
-        head_box = QVBoxLayout(head)
-        head_box.setContentsMargins(0, 0, 0, 0)
-        head_box.setSpacing(6)
         # Ce qui est réglé en ce moment, en clair
         self.voice_summary = QLabel("")
         self.voice_summary.setWordWrap(True)
         self.voice_summary.setTextFormat(Qt.TextFormat.RichText)
-        head_box.addWidget(self.voice_summary)
-        target_row = QHBoxLayout()
-        target_row.addWidget(QLabel("Le bouton « Choisir » règle :"))
-        self.gallery_target = QComboBox()
-        self.gallery_target.addItem("🎙 Sa voix (celle qu'on entend)", "main")
-        self.gallery_target.addItem("🛟 Sa voix de secours", "backup")
-        self.gallery_target.setToolTip(
-            "Sa voix : celle qu'il utilise tout le temps. Voix de secours : celle qui prend le "
-            "relais quand sa voix ne répond pas (quota Gemini atteint, coupure Internet)."
-        )
-        self.gallery_target.currentIndexChanged.connect(lambda _i: self._gallery_mode())
-        target_row.addWidget(self.gallery_target)
-        target_row.addStretch(1)
-        head_box.addLayout(target_row)
-        self.gallery_intro = _muted(
-            "Écoute chaque voix (▶), puis « Choisir ». L'effet et le jeu de voix ci-dessous "
-            "s'appliquent à TOUTES les voix Edge, Gemini et ChatGPT (pas aux voix sur mesure). "
-            "Edge : gratuit. Gemini : ta clé Gemini (quota limité). ChatGPT : ta clé OpenAI "
-            "(payant à l'usage)."
-        )
-        head_box.addWidget(self.gallery_intro)
-        self.backup_intro = _muted(
-            "Choisis ici la voix qui parle quand sa voix ne répond pas (par ex. quota Gemini "
-            "atteint) : bouton « Secours ». Prends une voix Edge (gratuite, sans quota) pour "
-            "ne jamais rester muet. Si le secours échoue aussi, sa voix robot (sur ton PC) "
-            "prend le relais."
-        )
-        self.backup_intro.setVisible(False)
-        head_box.addWidget(self.backup_intro)
-        grid.addWidget(head, 1, 0, 1, 4)
-        self.effect_box = QComboBox()
-        for key, label in (
-            ("", "Aucun"),
-            ("masculin", "♂ Masculin"),
-            ("feminin", "♀ Féminin"),
-            ("enfant", "✨ Jeune"),
-            ("robot", "🤖 Robot"),
-            ("robote", "🤖 Petite robote"),
-            ("robot_enfant", "🤖 Petit robot (VIIRUS)"),
-            ("gros_robot", "🦾 Gros robot"),
-        ):
-            self.effect_box.addItem(label, key)
-        self.effect_box.currentIndexChanged.connect(
-            lambda _i: self._emit("voice_effect", self.effect_box.currentData())
-        )
-        self.effect_box.currentIndexChanged.connect(lambda _i: self._update_summary())
-        effect_label = QLabel("Effet")
-        grid.addWidget(effect_label, 2, 0)
-        grid.addWidget(self.effect_box, 2, 1, 1, 3)
-        fx = QWidget()
-        fx_grid = QGridLayout(fx)
-        fx_grid.setContentsMargins(0, 0, 0, 0)
-        self.fx_sliders: dict[str, tuple[QSlider, QLabel]] = {}
-        for row, (key, label, low, high) in enumerate(
-            (
-                ("fx_pitch", "Hauteur", -12, 12),  # demi-tons × 2 (pas de 0,5)
-                ("fx_metal", "Métal / robot", 0, 100),
-                ("fx_bright", "Clarté", 0, 100),
-            )
-        ):
-            slider = QSlider(Qt.Orientation.Horizontal)
-            slider.setRange(low, high)
-            value = _muted("")
-            slider.valueChanged.connect(lambda v, k=key, lab=value: lab.setText(_fx_text(k, v)))
-            slider.sliderReleased.connect(lambda k=key, sl=slider: self._emit_fx(k, sl.value()))
-            slider.valueChanged.connect(
-                lambda v, k=key, sl=slider: None if sl.isSliderDown() else self._emit_fx(k, v)
-            )
-            fx_grid.addWidget(QLabel(label), row, 0)
-            fx_grid.addWidget(slider, row, 1)
-            fx_grid.addWidget(value, row, 2)
-            self.fx_sliders[key] = (slider, value)
-        fx_grid.setColumnStretch(1, 1)
-        self.fx_section = _collapsible("Réglages fins (hauteur, métal, clarté)", fx)
-        grid.addWidget(self.fx_section, 3, 1, 1, 3)
-        fx_grid.addWidget(
+        grid.addWidget(self.voice_summary, 1, 0, 1, 4)
+        grid.addWidget(
             _muted(
-                "Choisir un effet place ces curseurs ; ajuste-les puis ▶ Écouter. Au-delà de "
-                "±3 demi-tons, la voix sonne trafiquée : pour une vraie voix d'homme ou de "
-                "femme, choisis plutôt une voix « homme » ou « femme » dans le catalogue. Les "
-                "voix sur mesure n'ont jamais d'effet sonore."
+                "▶ écoute une voix. « Principale » : la voix qu'il utilise tout le temps. "
+                "« Secours » : celle qui prend le relais quand la principale ne répond pas "
+                "(quota Gemini atteint, coupure). Edge : gratuit, sans quota. Gemini : ta clé "
+                "Gemini (quota par jour). ChatGPT : ta clé OpenAI (payant à l'usage)."
             ),
-            3,
+            2,
             0,
             1,
-            3,
+            4,
         )
-        self.voice_style = QLineEdit()
-        self.voice_style.setPlaceholderText(
-            "ex. comme une petite robote espiègle : voix aiguë, rieuse, un peu mécanique"
-        )
-        self.voice_style.editingFinished.connect(
-            lambda: self._emit("voice_style", self.voice_style.text())
-        )
-        style_label = QLabel("Jeu de voix")
-        grid.addWidget(style_label, 4, 0)
-        grid.addWidget(self.voice_style, 4, 1, 1, 3)
-        style_note = _muted(
-            "Consigne libre pour les voix ChatGPT et Gemini seulement (Edge ne sait pas jouer "
-            "un rôle) : décris comment parler (âge apparent, robot, énergie, ton…). Elle "
-            "remplace la consigne de l'effet ; l'effet sonore (hauteur, métal) s'applique "
-            "toujours. Vide = consigne de l'effet."
-        )
-        grid.addWidget(style_note, 5, 0, 1, 4)
-        # Réglages de SA voix : cachés quand on choisit la voix de secours
-        self._main_only = [
-            effect_label,
-            self.effect_box,
-            self.fx_section,
-            style_label,
-            self.voice_style,
-            style_note,
-        ]
+        self.main_buttons: dict[str, QPushButton] = {}
+        self.backup_buttons: dict[str, QPushButton] = {}
+        self.gallery_buttons = self.main_buttons  # ancien nom
+        self.gallery_sections: dict[str, QWidget] = {}
         self._chosen_main = ""
         self._chosen_backup = ""
-        self.gallery_buttons: dict[str, QPushButton] = {}
-        self.gallery_sections: dict[str, QWidget] = {}
-        row = 6
+        self._voice_now: VoiceSettings | None = None
+        self._cv_editing = ""
+        # --- Voix sur mesure : ouverte d'office ------------------------------------------------
+        body = QWidget()
+        inner = QVBoxLayout(body)
+        inner.setContentsMargins(0, 0, 0, 0)
+        inner.setSpacing(10)
+        inner.addWidget(self._custom_creator())
+        mine = QWidget()
+        self.custom_grid = QGridLayout(mine)
+        self.custom_grid.setContentsMargins(0, 0, 0, 0)
+        inner.addWidget(mine)
+        designed = QWidget()
+        designed_grid = QGridLayout(designed)
+        designed_grid.setContentsMargins(0, 0, 0, 0)
+        self._designed_voices(designed_grid, 0)
+        inner.addWidget(_collapsible("✨ Créer avec une description (Gemini 3.8)", designed))
+        section = _collapsible("✨ Voix sur mesure", body, opened=True)
+        self.gallery_sections["designed"] = section
+        grid.addWidget(section, 3, 0, 1, 4)
+        self.fill_custom_voices()
+        # --- Toutes les voix ----------------------------------------------------------------
+        row = 4
         for engine, title, voices in (
             ("edge", "Voix Edge (Microsoft)", [(n, label) for n, label in EDGE_VOICES]),
             ("gemini", "Voix Gemini (Google)", [(n, f"{n} — {d}") for n, d in GEMINI_VOICES]),
             ("openai", "Voix ChatGPT (OpenAI, clé OpenAI)", list(OPENAI_VOICES)),
         ):
             body = QWidget()
-            inner = QGridLayout(body)
-            inner.setContentsMargins(0, 0, 0, 0)
+            inner_grid = QGridLayout(body)
+            inner_grid.setContentsMargins(0, 0, 0, 0)
             for index, (name, label) in enumerate(voices):
                 key = f"{engine}|{name}"
-                inner.addWidget(QLabel(label), index, 0, 1, 2)
-                listen = QPushButton("▶ Écouter")
-                listen.clicked.connect(lambda _=False, k=key: self._emit("voice_preview", k))
-                choose = QPushButton("Choisir")
-                choose.setObjectName("ghost")
-                choose.clicked.connect(lambda _=False, k=key: self._choose_voice(k))
-                inner.addWidget(listen, index, 2)
-                inner.addWidget(choose, index, 3)
-                self.gallery_buttons[key] = choose
-            inner.setColumnStretch(0, 1)
+                inner_grid.addWidget(QLabel(label), index, 0)
+                self._voice_row(inner_grid, index, 1, key)
+            inner_grid.setColumnStretch(0, 1)
             section = _collapsible(f"{title} — {len(voices)} voix", body)
             self.gallery_sections[engine] = section
             grid.addWidget(section, row, 0, 1, 4)
             row += 1
-        body = QWidget()
-        inner = QGridLayout(body)
-        inner.setContentsMargins(0, 0, 0, 0)
-        self._designed_voices(inner, 0)
-        section = _collapsible("✨ Voix sur mesure (Gemini 3.8)", body)
-        self.gallery_sections["designed"] = section
-        grid.addWidget(section, row, 0, 1, 4)
-        row += 1
         self.gallery_state = _muted("")
         grid.addWidget(self.gallery_state, row, 0, 1, 4)
         return panel
+
+    def _voice_row(self, grid: QGridLayout, row: int, col: int, key: str) -> int:
+        """▶ Écouter · Principale · Secours pour la voix ``key`` (moteur|nom)."""
+        listen = QPushButton("▶ Écouter")
+        if key.startswith("custom|"):
+            listen.clicked.connect(lambda _=False, k=key: self._emit("custom_listen", k[7:]))
+        else:
+            listen.clicked.connect(lambda _=False, k=key: self._emit("voice_preview", k))
+        main = QPushButton("Principale")
+        main.setObjectName("ghost")
+        main.setToolTip("En faire sa voix (celle qu'on entend tout le temps)")
+        main.clicked.connect(lambda _=False, k=key: self._choose_main(k))
+        backup = QPushButton("Secours")
+        backup.setObjectName("ghost")
+        backup.setToolTip("En faire sa voix de secours (si la principale ne répond pas)")
+        backup.clicked.connect(lambda _=False, k=key: self._choose_backup(k))
+        grid.addWidget(listen, row, col)
+        grid.addWidget(main, row, col + 1)
+        grid.addWidget(backup, row, col + 2)
+        self.main_buttons[key] = main
+        self.backup_buttons[key] = backup
+        return col + 3
+
+    # --- créateur de voix (n'importe quelle voix + réglages fins) ------------------------------
+
+    def _custom_creator(self) -> QWidget:
+        from alicia.core.audio.speaker import FX_PRESETS
+
+        box = QFrame()
+        box.setObjectName("subpanel")
+        grid = QGridLayout(box)
+        grid.setContentsMargins(0, 0, 0, 0)
+        grid.setHorizontalSpacing(10)
+        grid.addWidget(
+            _muted(
+                "Prends n'importe quelle voix (Edge, Gemini, ChatGPT), règle-la, ▶ écoute, "
+                "puis 💾 enregistre-la : elle rejoint « Mes voix », où tu la choisis en "
+                "principale ou en secours. ✏️ la reprend pour la modifier."
+            ),
+            0,
+            0,
+            1,
+            4,
+        )
+        self.cv_engine = QComboBox()
+        for key, label in (
+            ("edge", "Edge (gratuit)"),
+            ("gemini", "Gemini (ta clé)"),
+            ("openai", "ChatGPT (ta clé OpenAI)"),
+        ):
+            self.cv_engine.addItem(label, key)
+        self.cv_voice = QComboBox()
+        self.cv_engine.currentIndexChanged.connect(lambda _i: self._cv_fill_voices())
+        grid.addWidget(QLabel("Voix de base"), 1, 0)
+        grid.addWidget(self.cv_engine, 1, 1)
+        grid.addWidget(self.cv_voice, 1, 2, 1, 2)
+        self.cv_start = QComboBox()
+        for key, label in (
+            ("", "Naturel"),
+            ("masculin", "♂ Masculin"),
+            ("feminin", "♀ Féminin"),
+            ("enfant", "✨ Jeune"),
+            ("robot", "🤖 Robot"),
+            ("robote", "🤖 Petite robote"),
+            ("robot_enfant", "🤖 Petit robot"),
+            ("gros_robot", "🦾 Gros robot"),
+        ):
+            self.cv_start.addItem(label, key)
+
+        def start(_i: int = 0) -> None:
+            pitch, metal, bright = FX_PRESETS.get(self.cv_start.currentData(), (0.0, 0, 50))
+            self._cv_set(pitch, metal, bright, self.cv_sliders["reverb"][0].value())
+
+        self.cv_start.currentIndexChanged.connect(start)
+        grid.addWidget(QLabel("Point de départ"), 2, 0)
+        grid.addWidget(self.cv_start, 2, 1, 1, 3)
+        self.cv_sliders: dict[str, tuple[QSlider, QLabel]] = {}
+        for row, (key, label, low, high, text_key) in enumerate(
+            (
+                ("pitch", "Hauteur", -12, 12, "fx_pitch"),  # demi-tons × 2 (pas de 0,5)
+                ("metal", "Métal / robot", 0, 100, "fx_metal"),
+                ("bright", "Clarté", 0, 100, "fx_bright"),
+                ("reverb", "Réverbération", 0, 100, "fx_reverb"),
+            ),
+            start=3,
+        ):
+            slider = QSlider(Qt.Orientation.Horizontal)
+            slider.setRange(low, high)
+            value = _muted("")
+            slider.valueChanged.connect(
+                lambda v, k=text_key, lab=value: lab.setText(_fx_text(k, v))
+            )
+            grid.addWidget(QLabel(label), row, 0)
+            grid.addWidget(slider, row, 1, 1, 2)
+            grid.addWidget(value, row, 3)
+            self.cv_sliders[key] = (slider, value)
+        self.cv_style = QLineEdit()
+        self.cv_style.setPlaceholderText(
+            "facultatif, ex. comme un petit robot espiègle, rieur, un peu mécanique"
+        )
+        self.cv_style_label = QLabel("Jeu de voix")
+        self.cv_style.setToolTip(
+            "Gemini et ChatGPT seulement : comment parler (âge apparent, énergie, ton…)"
+        )
+        grid.addWidget(self.cv_style_label, 7, 0)
+        grid.addWidget(self.cv_style, 7, 1, 1, 3)
+        self.cv_name = QLineEdit()
+        self.cv_name.setPlaceholderText("Nom, ex. VIIRUS grave")
+        grid.addWidget(QLabel("Nom"), 8, 0)
+        grid.addWidget(self.cv_name, 8, 1, 1, 3)
+        buttons = QHBoxLayout()
+        listen = QPushButton("▶ Écouter")
+        listen.clicked.connect(lambda: self._emit("custom_preview", self.custom_draft()))
+        save = QPushButton("💾 Enregistrer")
+        save.setObjectName("primary")
+        save.clicked.connect(self._cv_save)
+        fresh = QPushButton("Nouvelle")
+        fresh.setObjectName("ghost")
+        fresh.setToolTip("Repartir d'une voix vierge")
+        fresh.clicked.connect(self.reset_creator)
+        buttons.addWidget(listen)
+        buttons.addWidget(save)
+        buttons.addWidget(fresh)
+        buttons.addStretch(1)
+        grid.addLayout(buttons, 9, 0, 1, 4)
+        grid.setColumnStretch(2, 1)
+        self._cv_fill_voices()
+        self._cv_set(0.0, 0, 50, 0)
+        return box
+
+    def _cv_fill_voices(self, chosen: str = "") -> None:
+        engine = self.cv_engine.currentData()
+        self.cv_voice.clear()
+        for name, label in self._backup_voices(engine):
+            if not name.startswith("voice_"):  # voix sur mesure Gemini : sans réglages
+                self.cv_voice.addItem(label, name)
+        self.cv_voice.setCurrentIndex(max(0, self.cv_voice.findData(chosen)))
+        talks = engine in ("gemini", "openai")
+        self.cv_style.setVisible(talks)
+        self.cv_style_label.setVisible(talks)
+
+    def _cv_set(self, pitch: float, metal: int, bright: int, reverb: int) -> None:
+        for key, value in (
+            ("pitch", round(pitch * 2)),
+            ("metal", metal),
+            ("bright", bright),
+            ("reverb", reverb),
+        ):
+            slider, label = self.cv_sliders[key]
+            slider.setValue(int(value))
+            label.setText(_fx_text("fx_" + key, int(value)))
+
+    def custom_draft(self) -> dict[str, object]:
+        return {
+            "id": self._cv_editing,
+            "name": self.cv_name.text().strip(),
+            "engine": self.cv_engine.currentData(),
+            "voice": self.cv_voice.currentData() or "",
+            "pitch": self.cv_sliders["pitch"][0].value() / 2,
+            "metal": self.cv_sliders["metal"][0].value(),
+            "bright": self.cv_sliders["bright"][0].value(),
+            "reverb": self.cv_sliders["reverb"][0].value(),
+            "style": self.cv_style.text().strip() if self.cv_style.isVisibleTo(self) else "",
+        }
+
+    def _cv_save(self) -> None:
+        if not self.cv_name.text().strip():
+            self.cv_name.setText(f"{self.cv_voice.currentText().split(' ')[0]} perso")
+        self._emit("custom_save", self.custom_draft())
+
+    def reset_creator(self) -> None:
+        self._cv_editing = ""
+        self.cv_name.clear()
+        self.cv_style.clear()
+        self.cv_start.blockSignals(True)
+        self.cv_start.setCurrentIndex(0)
+        self.cv_start.blockSignals(False)
+        self._cv_set(0.0, 0, 50, 0)
+
+    def edit_custom(self, voice_id: str) -> None:
+        """✏️ : la voix revient dans le créateur pour être modifiée puis réenregistrée."""
+        from alicia.core.audio.custom_voices import get_custom
+
+        voice = get_custom(voice_id)
+        if voice is None:
+            return
+        self._cv_editing = voice.id
+        self.cv_engine.blockSignals(True)
+        self.cv_engine.setCurrentIndex(max(0, self.cv_engine.findData(voice.engine)))
+        self.cv_engine.blockSignals(False)
+        self._cv_fill_voices(voice.voice)
+        self.cv_start.blockSignals(True)
+        self.cv_start.setCurrentIndex(0)
+        self.cv_start.blockSignals(False)
+        self._cv_set(voice.pitch, voice.metal, voice.bright, voice.reverb)
+        self.cv_style.setText(voice.style)
+        self.cv_name.setText(voice.name)
+        self.gallery_state.setText(f"✏️ « {voice.name} » : modifie-la puis 💾 Enregistrer.")
+
+    def fill_custom_voices(self) -> None:
+        """(Re)liste « Mes voix »."""
+        from alicia.core.audio.custom_voices import load_custom
+
+        grid = self.custom_grid
+        while grid.count():
+            item = grid.takeAt(0)
+            if item.widget() is not None:
+                item.widget().deleteLater()
+        for key in [k for k in self.main_buttons if k.startswith("custom|")]:
+            del self.main_buttons[key]
+            del self.backup_buttons[key]
+        voices = load_custom()
+        title = QLabel(
+            f"MES VOIX ({len(voices)})" if voices else "MES VOIX — aucune pour l'instant"
+        )
+        title.setObjectName("sectionTitle")
+        grid.addWidget(title, 0, 0, 1, 6)
+        for index, voice in enumerate(voices, start=1):
+            label = QLabel(f"🎛 {voice.name}")
+            label.setProperty("keep_names", True)
+            label.setToolTip(self._custom_details(voice))
+            grid.addWidget(label, index, 0)
+            col = self._voice_row(grid, index, 1, f"custom|{voice.id}")
+            edit = QPushButton("✏️")
+            edit.setToolTip("Modifier cette voix (dans le créateur ci-dessus)")
+            edit.setFixedWidth(40)
+            edit.clicked.connect(lambda _=False, v=voice.id: self.edit_custom(v))
+            delete = QPushButton("✕")
+            delete.setToolTip("Supprimer cette voix")
+            delete.setFixedWidth(40)
+            delete.clicked.connect(lambda _=False, v=voice.id: self._emit("custom_delete", v))
+            grid.addWidget(edit, index, col)
+            grid.addWidget(delete, index, col + 1)
+        grid.setColumnStretch(0, 1)
+        self._refresh_gallery_marks()
+        self._update_summary()
+
+    def _custom_details(self, voice) -> str:  # type: ignore[no-untyped-def]
+        base = self._voice_label(voice.engine, voice.voice)
+        parts = [
+            _fx_text("fx_pitch", round(voice.pitch * 2)),
+            "métal " + _fx_text("fx_metal", voice.metal),
+            "clarté " + _fx_text("fx_bright", voice.bright),
+            "réverb " + _fx_text("fx_reverb", voice.reverb),
+        ]
+        text = f"{base} · hauteur {', '.join(parts)}"
+        return text + (f" · jeu : {voice.style}" if voice.style else "")
 
     def _designed_voices(self, grid: QGridLayout, row: int) -> int:
         """Voix sur mesure Gemini : on la décrit, Gemini la crée, on l'écoute, on la choisit."""
@@ -1515,17 +1652,15 @@ class SettingsPage(QWidget):
             item = self.designed_grid.takeAt(0)
             if item.widget() is not None:
                 item.widget().deleteLater()
-        for key in [k for k in self.gallery_buttons if k.startswith("gemini|voice_")]:
-            del self.gallery_buttons[key]
+        for key in [k for k in self.main_buttons if k.startswith("gemini|voice_")]:
+            del self.main_buttons[key]
+            del self.backup_buttons[key]
         for index, voice in enumerate(load_voices()):
             key = f"gemini|{voice.id}"
             label = QLabel(f"✨ {voice.name}")
             label.setToolTip(voice.description)
-            listen = QPushButton("▶ Écouter")
-            listen.clicked.connect(lambda _=False, k=key: self._emit("voice_preview", k))
-            choose = QPushButton("Choisir")
-            choose.setObjectName("ghost")
-            choose.clicked.connect(lambda _=False, k=key: self._choose_voice(k))
+            self.designed_grid.addWidget(label, index, 0)
+            col = self._voice_row(self.designed_grid, index, 1, key)
             rename = QPushButton("✏️")
             rename.setToolTip("Renommer cette voix")
             rename.setFixedWidth(40)
@@ -1534,12 +1669,8 @@ class SettingsPage(QWidget):
             delete.setToolTip("Supprimer cette voix (aussi chez Google)")
             delete.setFixedWidth(40)
             delete.clicked.connect(lambda _=False, v=voice.id: self._emit("voice_delete", v))
-            self.designed_grid.addWidget(label, index, 0)
-            self.designed_grid.addWidget(listen, index, 1)
-            self.designed_grid.addWidget(choose, index, 2)
-            self.designed_grid.addWidget(rename, index, 3)
-            self.designed_grid.addWidget(delete, index, 4)
-            self.gallery_buttons[key] = choose
+            self.designed_grid.addWidget(rename, index, col)
+            self.designed_grid.addWidget(delete, index, col + 1)
         # Aussi dans le choix de voix du profil (Moteur : Gemini → Voix)
         box = self.gemini_voice_box
         box.blockSignals(True)
@@ -1556,15 +1687,23 @@ class SettingsPage(QWidget):
                 box.setItemText(index, f"✨ {voice.name} (sur mesure)")
         box.blockSignals(False)
         if hasattr(self, "_chosen_main"):
-            self._refresh_gallery_marks()  # boutons recréés : garder « ✓ Choisie / Secours »
+            self._refresh_gallery_marks()  # boutons recréés : garder les ✓
 
     def _backup_voices(self, engine: str) -> list[tuple[str, str]]:
         if engine == "edge":
             return list(EDGE_VOICES)
         if engine == "gemini":
-            return [(n, f"{n} — {d}") for n, d in GEMINI_VOICES]
+            from alicia.core.audio.voice_design import load_voices
+
+            return [(n, f"{n} — {d}") for n, d in GEMINI_VOICES] + [
+                (v.id, f"✨ {v.name} (sur mesure)") for v in load_voices()
+            ]
         if engine == "openai":
             return list(OPENAI_VOICES)
+        if engine == "custom":
+            from alicia.core.audio.custom_voices import load_custom
+
+            return [(v.id, f"🎛 {v.name}") for v in load_custom()]
         return []
 
     def _fill_backup_voices(self, engine: str, chosen: str = "") -> None:
@@ -1590,44 +1729,33 @@ class SettingsPage(QWidget):
         self._refresh_gallery_marks()
         self._update_summary()
 
-    # --- catalogue : sa voix ou sa voix de secours ------------------------------------------
+    # --- catalogue : principale / secours -----------------------------------------------------
 
-    def _backup_mode(self) -> bool:
-        return getattr(self, "gallery_target", None) is not None and (
-            self.gallery_target.currentData() == "backup"
-        )
-
-    def _gallery_mode(self) -> None:
-        backup = self._backup_mode()
-        for widget in self._main_only:
-            widget.setVisible(not backup)
-        self.gallery_intro.setVisible(not backup)
-        self.backup_intro.setVisible(backup)
-        designed = self.gallery_sections.get("designed")
-        if designed is not None:
-            designed.setVisible(not backup)  # une voix sur mesure ne peut pas être le secours
-        self._refresh_gallery_marks()
-
-    def _choose_voice(self, key: str) -> None:
-        if not self._backup_mode():
+    def _choose_main(self, key: str) -> None:
+        if key.startswith("custom|"):
+            self._emit("custom_main", key[7:])
+        else:
             self._emit("voice_choose", key)
-            return
+
+    def _choose_backup(self, key: str) -> None:
         engine, _, name = key.partition("|")
         self.load_backup_voice(f"{engine}:{name}")
         self._emit_backup()
 
     def _refresh_gallery_marks(self) -> None:
-        backup = self._backup_mode()
-        chosen = self._chosen_backup if backup else self._chosen_main
-        for name, button in self.gallery_buttons.items():
-            if backup:
-                button.setText("✓ Secours" if name == chosen else "Secours")
-            else:
-                button.setText("✓ Choisie" if name == chosen else "Choisir")
+        for name, button in self.main_buttons.items():
+            button.setText("✓ Principale" if name == self._chosen_main else "Principale")
+        for name, button in self.backup_buttons.items():
+            button.setText("✓ Secours" if name == self._chosen_backup else "Secours")
 
     def _voice_label(self, engine: str, name: str) -> str:
         if engine == "local" or not name:
             return "sa voix robot (sur ton PC)"
+        if engine == "custom":
+            from alicia.core.audio.custom_voices import get_custom
+
+            custom = get_custom(name)
+            return f"🎛 {custom.name}" if custom is not None else "voix supprimée"
         if engine == "gemini" and name.startswith("voice_"):
             from alicia.core.audio.voice_design import voice_name
 
@@ -1639,24 +1767,36 @@ class SettingsPage(QWidget):
 
     def _update_summary(self) -> None:
         summary = getattr(self, "voice_summary", None)
-        if summary is None:
+        voice = getattr(self, "_voice_now", None)
+        if summary is None or voice is None:
             return
-        engine = self.engine_box.currentData()
+        from alicia.core.audio.custom_voices import current_custom
+        from alicia.core.audio.speaker import fx_neutral
+
+        engine = voice.tts_engine
         name = {
-            "edge": self.voice_box.currentData(),
-            "gemini": self.gemini_voice_box.currentData(),
-            "openai": self.openai_voice_box.currentData(),
+            "edge": voice.tts_voice,
+            "gemini": voice.gemini_voice,
+            "openai": voice.openai_voice,
         }.get(engine)
-        main = self._voice_label(engine, name) if name else self.engine_box.currentText()
-        designed = engine == "gemini" and str(name or "").startswith("voice_")
-        effect = self.effect_box.currentData()
-        if effect and not designed and engine in ("edge", "gemini", "openai", "kokoro"):
-            main += f" + effet {self.effect_box.currentText()}"
+        custom = current_custom(voice)
+        if custom is not None:
+            main = f"🎛 {custom.name} ({self._voice_label(engine, name or '')})"
+        elif name:
+            main = self._voice_label(engine, name)
+            designed = engine == "gemini" and name.startswith("voice_")
+            if not designed and not fx_neutral(
+                voice.fx_pitch, voice.fx_metal, voice.fx_bright, voice.fx_reverb
+            ):
+                main += " + réglages fins"
+        else:
+            main = self.engine_box.currentText().split(" — ")[0]
         b_engine = self.backup_engine_box.currentData()
         b_name = self.backup_voice_box.currentData() or ""
         backup = self._voice_label(b_engine, b_name)
         summary.setText(
-            f"🎙 <b>Sa voix :</b> {html.escape(main)}<br>🛟 <b>Secours :</b> {html.escape(backup)}"
+            f"🎙 <b>Principale :</b> {html.escape(main)}<br>"
+            f"🛟 <b>Secours :</b> {html.escape(backup)}"
         )
 
     def load_backup_voice(self, value: str) -> None:
@@ -1675,6 +1815,27 @@ class SettingsPage(QWidget):
         self._chosen_main = key
         self._refresh_gallery_marks()
         self._update_summary()
+
+    def show_voice_choice(self, voice: VoiceSettings) -> None:
+        """Les ✓ du catalogue et le résumé, d'après les réglages de voix actuels."""
+        from alicia.core.audio.custom_voices import current_custom
+        from alicia.core.audio.speaker import fx_neutral
+
+        self._voice_now = voice
+        custom = current_custom(voice)
+        chosen = {
+            "edge": voice.tts_voice,
+            "gemini": voice.gemini_voice,
+            "openai": voice.openai_voice,
+        }.get(voice.tts_engine)
+        plain = fx_neutral(voice.fx_pitch, voice.fx_metal, voice.fx_bright, voice.fx_reverb)
+        if custom is not None:
+            key = f"custom|{custom.id}"
+        elif chosen and (plain or chosen.startswith("voice_")):
+            key = f"{voice.tts_engine}|{chosen}"
+        else:
+            key = ""
+        self.mark_chosen_voice(key)
 
     def _show_voice_list(self, engine: str) -> None:
         self.voice_box.setVisible(engine == "edge")
@@ -1738,19 +1899,11 @@ class SettingsPage(QWidget):
             self.gemini_voice_box.setCurrentIndex(
                 self.gemini_voice_box.findData(voice.gemini_voice)
             )
-            self.effect_box.setCurrentIndex(max(0, self.effect_box.findData(voice.voice_effect)))
             self.load_backup_voice(voice.backup_voice)
-            self.voice_style.setText(voice.voice_style)
-            self.load_fx(voice)
             self.show_voice_keys(voice.own_keys)
             self.volume.setValue(voice.volume)
             self.volume_label.setText(f"{voice.volume} %")
-            chosen = {
-                "edge": voice.tts_voice,
-                "gemini": voice.gemini_voice,
-                "openai": voice.openai_voice,
-            }.get(voice.tts_engine)
-            self.mark_chosen_voice(f"{voice.tts_engine}|{chosen}" if chosen else "")
+            self.show_voice_choice(voice)
             percent = rate_percent(voice.tts_rate)
             self.speed.setValue(percent)
             self.speed_label.setText(f"{percent:+d} %")
