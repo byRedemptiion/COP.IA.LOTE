@@ -542,7 +542,34 @@ class SettingsPage(QWidget):
         grid.addWidget(self.twitch_input, 1, 1)
         grid.addWidget(self.twitch_button, 1, 2)
         self.twitch_state = _muted("")
-        grid.addWidget(self.twitch_state, 2, 1, 1, 2)
+        extra = QWidget()  # sous la chaîne Twitch : son état, puis le live TikTok
+        extra_grid = QGridLayout(extra)
+        extra_grid.setContentsMargins(0, 0, 0, 0)
+        extra_grid.setHorizontalSpacing(16)
+        extra_grid.addWidget(self.twitch_state, 0, 1, 1, 2)
+        self.tiktok_input = QLineEdit()
+        self.tiktok_input.setPlaceholderText("ton @ TikTok, ex. @nova.jagger")
+        self.tiktok_input.editingFinished.connect(
+            lambda: self._emit("tiktok_user", self.tiktok_input.text())
+        )
+        self.tiktok_state = _muted("TikTok : coupé")
+        extra_grid.addWidget(QLabel("Live TikTok"), 1, 0)
+        extra_grid.addWidget(self.tiktok_input, 1, 1)
+        extra_grid.addWidget(self.tiktok_state, 1, 2)
+        extra_grid.addWidget(
+            _muted(
+                "Le Mode Stream lit aussi le chat de ton live TikTok (et remercie pour les "
+                "cadeaux, follows et partages) : juste ton @, sans compte ni mot de passe. "
+                "Twitch et TikTok peuvent marcher en même temps. Non officiel : si TikTok "
+                "change quelque chose, ça peut s'arrêter le temps d'une mise à jour."
+            ),
+            2,
+            1,
+            1,
+            2,
+        )
+        extra_grid.setColumnStretch(1, 1)
+        grid.addWidget(extra, 2, 0, 1, 3)
         self.overlay_box = QCheckBox("ALICIA sur le stream : page à ajouter dans OBS")
         self.overlay_box.toggled.connect(lambda on: self._emit("overlay", on))
         grid.addWidget(self.overlay_box, 3, 0, 1, 2)
@@ -2033,6 +2060,7 @@ class SettingsPage(QWidget):
         self._loading = True
         try:
             self.twitch_input.setText(stream.twitch_channel)
+            self.tiktok_input.setText(f"@{stream.tiktok_user}" if stream.tiktok_user else "")
             self.overlay_box.setChecked(stream.overlay)
             self.overlay_voice_box.blockSignals(True)
             self.overlay_voice_box.setChecked(stream.overlay_voice)

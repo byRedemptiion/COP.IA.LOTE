@@ -1461,6 +1461,8 @@ class MainWindow(QMainWindow):
             self.set_overlay(bool(value))
         elif key == "twitch_channel":
             self.set_twitch_channel(str(value or ""))
+        elif key == "tiktok_user":
+            self.set_tiktok_user(str(value or ""))
             if self.stream_mode.enabled:
                 self.set_stream_mode(True, save=False)  # relit le chat de la nouvelle chaîne
         elif key == "chat_mode":
@@ -3479,6 +3481,25 @@ class MainWindow(QMainWindow):
         QDesktopServices.openUrl(QUrl(twitch_chat_url(channel)))
         log.info("Chat Twitch ouvert : %s", channel)
 
+    def set_tiktok_user(self, text: str) -> None:
+        from dataclasses import replace
+
+        from alicia.stream.tiktok import tiktok_user
+
+        user = tiktok_user(text)
+        stream = replace(self.services.settings.stream, tiktok_user=user)
+        self.services.settings = replace(self.services.settings, stream=stream)
+        self._save("stream", "tiktok_user", user)
+        page = self.settings_page
+        page.tiktok_input.setText(f"@{user}" if user else "" if not text.strip() else text)
+        if text.strip() and not user:
+            page.tiktok_state.setText("⚠ @ invalide (lettres, chiffres, . et _)")
+            return
+        if self.stream_mode.enabled:  # Mode Stream déjà lancé : on relance avec le live TikTok
+            self.stream_mode.start()
+        elif user:
+            page.tiktok_state.setText("TikTok : prêt (lance le Mode Stream 📺)")
+
     def set_twitch_channel(self, text: str) -> None:
         from dataclasses import replace
 
@@ -4995,9 +5016,17 @@ class MainWindow(QMainWindow):
             self._notify(f"⚠ {problem}")
             self.show_page(2, "stream")
         elif save:
-            channel = self.services.settings.stream.twitch_channel
+            stream = self.services.settings.stream
+            where = " et ".join(
+                w
+                for w in (
+                    stream.twitch_channel and f"Twitch ({stream.twitch_channel})",
+                    stream.tiktok_user and f"TikTok (@{stream.tiktok_user})",
+                )
+                if w
+            )
             self._notify(
-                f"📺 Mode Stream activé : je lis le chat de {channel}."
+                f"📺 Mode Stream activé : je lis le chat {where}."
                 if enabled
                 else "Mode Stream coupé : je ne lis plus le chat."
             )

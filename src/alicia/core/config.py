@@ -246,6 +246,7 @@ class UpdateSettings:
 @dataclass(frozen=True)
 class StreamSettings:
     twitch_channel: str = ""  # ex. « nova_jagger » : bouton « Chat Twitch »
+    tiktok_user: str = ""  # ex. « nova.jagger » : le Mode Stream lit aussi ce live TikTok
     overlay: bool = True  # page pour OBS (source Navigateur) sur http://127.0.0.1:<port>/overlay
     overlay_port: int = 8765
     chat_mode: bool = False  # Mode Stream : il lit le chat Twitch et répond à voix haute
@@ -333,6 +334,12 @@ class Settings:
     sources: tuple[str, ...] = field(default_factory=tuple)
     log_dir: Path = field(default_factory=lambda: state_dir() / "logs")
     captures_dir: Path = field(default_factory=lambda: Path.cwd() / "captures")
+
+
+def _tiktok(text: str) -> str:
+    from alicia.stream.tiktok import tiktok_user
+
+    return tiktok_user(text)
 
 
 def twitch_channel(text: str) -> str:
@@ -602,6 +609,7 @@ def load_settings(
         stream_visible=bool(_section(data, "ui").get("stream_visible", False)),
         stream=StreamSettings(
             twitch_channel=twitch_channel(str(_section(data, "stream").get("twitch_channel", ""))),
+            tiktok_user=_tiktok(str(_section(data, "stream").get("tiktok_user", ""))),
             overlay=bool(_section(data, "stream").get("overlay", True)),
             overlay_port=min(
                 65000,

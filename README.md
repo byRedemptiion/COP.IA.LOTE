@@ -30,7 +30,7 @@
 
 - 🎙 **Tu lui parles** : « VIIRUS, quel objet je prends ? ». Il voit ton écran au moment où tu parles et répond en quelques secondes, à voix haute.
 - 💡 **Mode Copilote** : il surveille ta partie et n'intervient que quand ça compte (danger, erreur, opportunité, moment marquant).
-- 📺 **Mode Stream** : il lit le chat Twitch et répond aux spectateurs à voix haute, avec un overlay OBS animé et sa propre piste audio.
+- 📺 **Mode Stream** : il lit le chat Twitch et/ou TikTok et répond aux spectateurs à voix haute, avec un overlay OBS animé et sa propre piste audio.
 - 🤝 **Duo** : VIIRUS et ALICIA, sur deux PC, se parlent et se transmettent vos questions.
 - 📖 **Guides** : il trouve le bon guide, l'ouvre ou t'affiche la carte utile.
 - 🔊 **Voix** : Edge (gratuit), Gemini, ChatGPT, voix sur mesure ou voix robot locales, avec effets.
@@ -73,7 +73,8 @@ Il jette un coup d'œil à ta partie à intervalle régulier (8 s à 2 min) et n
 <details>
 <summary><b>📺 Mode Stream et OBS</b></summary>
 
-- Indique ta chaîne Twitch dans Réglages → Stream. Il lit le chat en lecture seule, sans compte, et n'y écrit jamais.
+- Indique ta chaîne Twitch et/ou ton @ TikTok dans Réglages → Stream. Il lit le chat en lecture seule, sans compte, et n'y écrit jamais.
+- TikTok n'a pas d'API officielle pour les lives : la lecture passe par la bibliothèque non officielle [TikTokLive](https://github.com/isaackogan/TikTokLive) (licence AGPL modifiée, qui autorise ce genre d'outil). Si TikTok change quelque chose, elle peut s'arrêter le temps d'une mise à jour.
 - Il répond quand on le nomme (« @VIIRUS », « !viirus »), aux questions, ou à tout de temps en temps ; une réponse toutes les 20 s au plus (réglable).
 - Les messages du chat ne déclenchent jamais d'action sur ton PC. Bots, liens, insultes et tentatives de lui faire dire quelque chose sont ignorés.
 - **Overlay OBS** : ajoute l'adresse indiquée dans Réglages → Stream comme source « Navigateur ». Le robot y flotte, s'anime et ses réponses s'affichent en sous-titres.

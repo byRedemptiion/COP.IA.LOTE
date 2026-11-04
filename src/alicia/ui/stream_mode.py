@@ -34,6 +34,7 @@ class _Bridge(QObject):
     status = Signal(str)
     event = Signal(object)  # TwitchEvent (follow, sub, raid…), depuis le fil des événements
     event_status = Signal(str)
+    tiktok_status = Signal(str)
     tokens = Signal(object)  # jetons Twitch rafraîchis : à enregistrer
 
 
@@ -42,6 +43,7 @@ class StreamMode(QObject):
         super().__init__(window)
         self.window = window
         self.chat: TwitchChat | None = None
+        self.tiktok = None  # TikTokChat : le live TikTok, lu en même temps que Twitch
         self.gate = ChatGate()
         self.gate.seen = self.gate.kept = 0
         from alicia.stream.viewers import ViewerBook
@@ -54,6 +56,9 @@ class StreamMode(QObject):
         self.bridge.status.connect(self._set_status)
         self.bridge.event.connect(self._event_received)
         self.bridge.event_status.connect(self._set_event_status)
+        self.bridge.tiktok_status.connect(self._set_tiktok_status)
+        self.tiktok_status = "coupé"
+        self._first_seen: set[str] = set()
         self.bridge.tokens.connect(self._save_tokens)
         self.timer = QTimer(self)
         self.timer.timeout.connect(self.tick)
@@ -64,7 +69,7 @@ class StreamMode(QObject):
 
     @property
     def enabled(self) -> bool:
-        return self.chat is not None
+        return self.chat is not None or self.tiktok is not None
 
     def configure(self) -> None:
         stream = self.window.services.settings.stream
@@ -77,20 +82,37 @@ class StreamMode(QObject):
         }
 
     def start(self) -> str | None:
-        """Démarre la lecture du chat ; renvoie un message d'erreur sinon."""
-        channel = self.window.services.settings.stream.twitch_channel
-        if not channel:
-            return "Indique d'abord ta chaîne Twitch : Réglages → Stream."
+        """Démarre la lecture du chat (Twitch et / ou TikTok) ; renvoie une erreur sinon."""
+        stream = self.window.services.settings.stream
+        channel, tiktok = stream.twitch_channel, stream.tiktok_user
+        if not channel and not tiktok:
+            return "Indique d'abord ta chaîne Twitch ou ton @ TikTok : Réglages → Stream."
         self.stop()
         self.configure()
         self.gate.seen = self.gate.kept = 0
-        self.chat = TwitchChat(channel, self.bridge.message.emit)
-        self.chat.on_status = self.bridge.status.emit
-        self.chat.start()
+        self._first_seen = set()
+        if channel:
+            self.chat = TwitchChat(channel, self.bridge.message.emit)
+            self.chat.on_status = self.bridge.status.emit
+            self.chat.start()
+            self._set_status("connexion…")
+            log.info("Mode Stream : lecture du chat de #%s", channel)
+        if tiktok:
+            from alicia.stream.tiktok import TikTokChat
+
+            self.tiktok = TikTokChat(tiktok, self.bridge.message.emit, self.bridge.event.emit)
+            self.tiktok.on_status = self.bridge.tiktok_status.emit
+            self.tiktok.start()
+            self._set_tiktok_status("connexion…")
+            log.info("Mode Stream : lecture du live TikTok de @%s", tiktok)
         self.timer.start(300)  # réactif : un message retenu part en moins d'1/3 s
-        self._set_status("connexion…")
-        log.info("Mode Stream : lecture du chat de #%s", channel)
         return None
+
+    def _set_tiktok_status(self, text: str) -> None:
+        self.tiktok_status = text
+        label = getattr(self.window.settings_page, "tiktok_state", None)
+        if label is not None:
+            label.setText(f"TikTok : {text}")
 
     # --- événements Twitch (follows, subs, raids, bits) -------------------------------------
 
@@ -120,7 +142,7 @@ class StreamMode(QObject):
         self.events = None
         self.event_queue.clear()
         self._set_event_status("coupés")
-        if self.chat is None:
+        if not self.enabled:
             self.timer.stop()
 
     def _set_event_status(self, text: str) -> None:
@@ -133,6 +155,9 @@ class StreamMode(QObject):
 
     def _event_received(self, event) -> None:  # type: ignore[no-untyped-def]
         from alicia.stream.twitch_events import GESTURES
+
+        if event.kind in ("follow", "share") and len(self.event_queue) >= 3:
+            return  # live très actif : les cadeaux passent avant une file de follows
 
         gesture, emoji = GESTURES.get(event.kind, ("nod", "💜"))
         overlay = self.window.overlay
@@ -150,8 +175,22 @@ class StreamMode(QObject):
         event = self.event_queue.popleft()
         text = thank_line(event)
         window = self.window
-        icons = {"follow": "💜", "sub": "⭐", "resub": "⭐", "gift": "🎁", "cheer": "💎"}
-        window.asked_label.setText(f"{icons.get(event.kind, '🚀')} TWITCH  ›  {event.user}")
+        if event.kind in ("follow", "share"):
+            # Petits événements (fréquents sur TikTok) : un merci toutes les 20 s au plus
+            if time.monotonic() - getattr(self, "_small_thanks_at", -1e9) < 20:
+                return False
+            self._small_thanks_at = time.monotonic()
+        icons = {
+            "follow": "💜",
+            "sub": "⭐",
+            "resub": "⭐",
+            "gift": "🎁",
+            "cheer": "💎",
+            "tiktok_gift": "🎁",
+            "share": "🔁",
+        }
+        where = "TIKTOK" if event.kind in ("tiktok_gift", "share") else "LIVE"
+        window.asked_label.setText(f"{icons.get(event.kind, '🚀')} {where}  ›  {event.user}")
         window.answer.setPlainText(text)
         if window._bubble_active():
             window.bubble.ask(f"{icons.get(event.kind, '🚀')} {event.user}")
@@ -165,14 +204,18 @@ class StreamMode(QObject):
         return True
 
     def stop(self) -> None:
+        if self.enabled:
+            log.info("Mode Stream : coupé")
         if self.chat is not None:
             self.chat.stop()
-            log.info("Mode Stream : coupé")
-        self.chat = None
+        if self.tiktok is not None:
+            self.tiktok.stop()
+        self.chat = self.tiktok = None
         if self.events is None:
             self.timer.stop()
         self.gate.queue.clear()
         self._set_status("coupé")
+        self._set_tiktok_status("coupé")
 
     def _set_status(self, text: str) -> None:
         self.status = text
@@ -181,13 +224,14 @@ class StreamMode(QObject):
             label.setText(f"Chat : {text}")
 
     def _received(self, message: ChatMessage) -> None:
-        if self.chat is None:
+        if not self.enabled:
             return
         if self.window.services.settings.stream.chat_regulars:
             self.viewers.seen(message.user)
         self.window.chat_reaction(message.text)  # petites réactions sur l'overlay
-        if self.gate.seen == 0:
-            log.info("Chat Twitch : 1er message reçu (le chat est bien lu)")
+        if message.platform not in self._first_seen:
+            self._first_seen.add(message.platform)
+            log.info("Chat %s : 1er message reçu (le chat est bien lu)", message.platform)
         if self.gate.offer(message):
             log.info("Chat : message de %s retenu", message.user)
             self.window.overlay_gesture("look")  # il a vu le message : réaction immédiate
@@ -196,7 +240,7 @@ class StreamMode(QObject):
     def _show_counts(self) -> None:
         """« Chat : connecté · 12 lus · 1 pour lui » : on voit tout de suite s'il lit le chat."""
         gate = self.gate
-        if self.chat is None:
+        if not self.enabled:
             return
         text = f"connecté · {gate.seen} message{'s' if gate.seen > 1 else ''} lu"
         text += "s" if gate.seen > 1 else ""
@@ -226,7 +270,7 @@ class StreamMode(QObject):
                 log.info("Chat : réponse en attente (%s)", busy)
             return
         self._told_busy = ""
-        if self._thank() or self.chat is None:
+        if self._thank() or not self.enabled:
             return
         message = self.gate.next()
         if message is None:
@@ -285,7 +329,7 @@ class StreamMode(QObject):
         def done(text: str) -> None:
             self.running = False
             self.gate.answered(message)
-            if not text or IGNORE in text.upper() or self.chat is None:
+            if not text or IGNORE in text.upper() or not self.enabled:
                 log.info("Chat : message de %s ignoré par l'IA", message.user)
                 return
             if self._busy():
@@ -306,7 +350,8 @@ class StreamMode(QObject):
         window = self.window
         text = text.replace(IGNORE, "").strip()
         title = current_persona().title.upper()
-        window.asked_label.setText(f"💬 {message.user}  ›  {message.text[:80]}")
+        where = "TikTok · " if message.platform == "tiktok" else ""
+        window.asked_label.setText(f"💬 {where}{message.user}  ›  {message.text[:80]}")
         window.answer.setPlainText(text)
         window._set_status(f"💬 {title} répond au chat")
         if window._bubble_active():

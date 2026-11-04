@@ -15,6 +15,7 @@ from __future__ import annotations
 import json
 import logging
 import random
+import re
 import threading
 import time
 from collections.abc import Callable
@@ -206,6 +207,15 @@ LINES = {
         "Un raid de {name} avec {amount} personnes ! Bienvenue à tous !",
         "Bienvenue aux {amount} raiders de {name} ! Merci pour le raid !",
     ),
+    # TikTok
+    "tiktok_gift": (
+        "Merci {name} pour {gifts} !",
+        "{gifts} de la part de {name}, merci beaucoup !",
+    ),
+    "share": (
+        "Merci {name} pour le partage du live !",
+        "{name} partage le live, merci, c'est top !",
+    ),
 }
 GESTURES = {
     "follow": ("nod", "💜"),
@@ -214,6 +224,8 @@ GESTURES = {
     "gift": ("spin", "🎁"),
     "cheer": ("spin", "💎"),
     "raid": ("hop", "🚀"),
+    "tiktok_gift": ("spin", "🎁"),
+    "share": ("nod", "🔁"),
 }
 
 
@@ -224,7 +236,13 @@ def thank_line(event: TwitchEvent) -> str:
     if event.user in ("Un anonyme", "quelqu'un"):
         name = "Un anonyme" if event.kind in ("gift", "cheer") else "quelqu'un"
     template = random.choice(LINES[event.kind])
-    line = template.format(name=name, amount=event.amount, s="s" if event.amount > 1 else "")
+    gift = re.sub(r"[^\w' -]", "", event.message)[:30] or "cadeau"  # nom du cadeau TikTok
+    line = template.format(
+        name=name,
+        amount=event.amount,
+        s="s" if event.amount > 1 else "",
+        gifts=f"les {event.amount} × {gift}" if event.amount > 1 else f"le cadeau {gift}",
+    )
     return line[:1].upper() + line[1:]
 
 

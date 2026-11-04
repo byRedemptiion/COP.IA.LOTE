@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "alicia-copilot"
-version = "0.19.3"
+version = "0.20.0"
 description = "COP'IA'LOTE : copilote IA pour jeux vidéo sous Windows (entités VIIRUS et ALICIA)"
 readme = "README.md"
 requires-python = ">=3.12,<3.14"
@@ -21,6 +21,7 @@ dependencies = [
   "kokoro-onnx>=0.6,<0.7",
   "faster-whisper>=1.2,<2",
   "pycaw>=20240316 ; sys_platform == 'win32'",
+  "tiktoklive>=7.0.1,<8",
 ]
 
 [project.optional-dependencies]
