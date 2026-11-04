@@ -1624,6 +1624,8 @@ class MainWindow(QMainWindow):
             self.show_brain_prompt(str(value))
         elif key == "brain_test":
             self.test_brain(str(value))
+        elif key == "personality_mode":
+            self.set_personality_mode(str(value or "normal"), announce=True)
         elif key in ("personality_load", "personality_edit", "personality_remove"):
             self._personality_action(key)
         elif key == "player_test":
@@ -2660,6 +2662,11 @@ class MainWindow(QMainWindow):
                 "copilot_on" if wanted else "copilot_off",
                 done=True,
             )
+        from alicia.core.personality import parse_mode_command
+
+        wanted_mode = parse_mode_command(text)  # « mode déchaîné », « calme-toi »
+        if wanted_mode is not None:
+            return ActionReply("…", f"personality_mode:{wanted_mode}", done=True)
         from alicia.core.rules import parse_rule_command
 
         rule = parse_rule_command(text)  # « arrête de me dire… », « tu peux reparler de… »
@@ -2889,20 +2896,37 @@ class MainWindow(QMainWindow):
         self._set_status(f"Message transmis à {other}.")
 
     def _show_personality(self) -> None:
-        from alicia.core.personality import load, personality_file
+        from alicia.core.personality import load, mode, personality_file
 
         persona = current_persona()
-        text = load(persona.key)
+        which = mode()
+        text = load(persona.key, which)
+        label = "déchaînée" if which == "dechaine" else "normale"
         if text:
-            path = personality_file(persona.key)
-            self.settings_page.show_personality(
-                f"{persona.title} : personnalité chargée ({len(text) // 100 / 10:g} k caractères)"
-                f" — {path.name}"
+            path = personality_file(persona.key, which)
+            shown = (
+                f"{persona.title} : personnalité {label} chargée "
+                f"({len(text) // 100 / 10:g} k caractères) — {path.name}"
             )
+        elif which == "dechaine":
+            shown = f"{persona.title} : mode déchaîné de base (charge un .md pour le personnaliser)"
         else:
-            self.settings_page.show_personality(
-                f"{persona.title} : personnalité de base (charge un .md pour la personnaliser)"
-            )
+            shown = f"{persona.title} : personnalité de base (charge un .md pour la personnaliser)"
+        self.settings_page.show_personality(shown, which)
+
+    def set_personality_mode(self, which: str, announce: bool = False) -> str:
+        """« Mode déchaîné » / « mode normal » : dès la prochaine réponse (gardé au redémarrage)."""
+        from alicia.core.personality import set_mode
+
+        which = set_mode(which)
+        self._show_personality()
+        if which == "dechaine":
+            text = "Mode déchaîné activé ! Accroche-toi, ça va secouer !"
+        else:
+            text = "D'accord, je me calme : mode normal."
+        if announce:
+            self._notify(("🔥 " if which == "dechaine" else "") + text)
+        return text
 
     def _personality_action(self, key: str) -> None:
         from PySide6.QtCore import QUrl
@@ -2912,15 +2936,17 @@ class MainWindow(QMainWindow):
         from alicia.core import personality
 
         persona = current_persona()
-        path = personality.personality_file(persona.key)
+        which = personality.mode()
+        path = personality.personality_file(persona.key, which)
         if key == "personality_load":
+            title = "déchaînée " if which == "dechaine" else ""
             chosen, _ = QFileDialog.getOpenFileName(
-                self, f"Personnalité de {persona.title}", "", "Texte (*.md *.txt)"
+                self, f"Personnalité {title}de {persona.title}", "", "Texte (*.md *.txt)"
             )
             if not chosen:
                 return
             try:
-                personality.install(persona.key, Path(chosen))
+                personality.install(persona.key, Path(chosen), which)
             except (OSError, UnicodeDecodeError) as exc:
                 log.error("Personnalité non chargée : %r", exc)
                 self._notify("⚠ Fichier illisible : choisis un fichier texte .md en UTF-8.")
@@ -2929,14 +2955,16 @@ class MainWindow(QMainWindow):
         elif key == "personality_edit":
             if not path.is_file():
                 path.parent.mkdir(parents=True, exist_ok=True)
-                path.write_text(
-                    f"# Personnalité de {persona.title}\n\n"
-                    "Décris ici son caractère, son ton, son humour, quand parler ou se taire…\n",
-                    encoding="utf-8",
+                start = (
+                    f"# Mode déchaîné de {persona.title}\n\n{personality.DECHAINE_DEFAULT}\n"
+                    if which == "dechaine"
+                    else f"# Personnalité de {persona.title}\n\n"
+                    "Décris ici son caractère, son ton, son humour, quand parler ou se taire…\n"
                 )
+                path.write_text(start, encoding="utf-8")
             QDesktopServices.openUrl(QUrl.fromLocalFile(str(path)))
         else:
-            personality.remove(persona.key)
+            personality.remove(persona.key, which)
             self._notify(f"{persona.title} reprend sa personnalité de base.")
         self._show_personality()
 
@@ -4757,6 +4785,8 @@ class MainWindow(QMainWindow):
             QTimer.singleShot(0, self.save_clip)
         if reply.intent == "debrief":
             QTimer.singleShot(0, self.debrief)
+        if reply.intent.startswith("personality_mode:"):
+            reply.text = self.set_personality_mode(reply.intent.split(":", 1)[1])
         if reply.intent.startswith("rule_"):
             reply.text = self.rule_action(reply.intent)
         if reply.intent.startswith("note_"):

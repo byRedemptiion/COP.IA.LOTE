@@ -297,6 +297,24 @@ class SettingsPage(QWidget):
         grid.addWidget(QLabel("Personnalité"), 4, 0)
         grid.addWidget(self.personality_state, 4, 1)
         grid.addLayout(personality_buttons, 4, 2)
+        from alicia.core.personality import MODE_LABELS
+
+        self.personality_mode = QComboBox()
+        for key, label in MODE_LABELS.items():
+            self.personality_mode.addItem(label, key)
+        self.personality_mode.setToolTip(
+            "Le mode en cours ; les boutons ci-dessus gèrent le fichier de CE mode"
+        )
+        self.personality_mode.currentIndexChanged.connect(
+            lambda _i: self._emit("personality_mode", self.personality_mode.currentData())
+        )
+        grid.addWidget(QLabel("Mode"), 5, 0)
+        grid.addWidget(self.personality_mode, 5, 1)
+        grid.addWidget(
+            _muted("À la voix : « mode déchaîné », « lâche-toi » / « mode normal », « calme-toi »"),
+            5,
+            2,
+        )
         self.player_name.setProperty("keep_names", True)
         self.player_phonetic.setProperty("keep_names", True)
         grid.setColumnStretch(2, 1)
@@ -1473,8 +1491,12 @@ class SettingsPage(QWidget):
             text += " — manquent : " + ", ".join(missing)
         self.anims_state.setText(text)
 
-    def show_personality(self, text: str) -> None:
+    def show_personality(self, text: str, which: str = "normal") -> None:
         self.personality_state.setText(text)
+        box = self.personality_mode
+        box.blockSignals(True)
+        box.setCurrentIndex(max(0, box.findData(which)))
+        box.blockSignals(False)
 
     def load_player(self, player) -> None:  # type: ignore[no-untyped-def]
         self._loading = True

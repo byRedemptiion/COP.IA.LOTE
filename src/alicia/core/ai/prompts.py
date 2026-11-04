@@ -120,7 +120,7 @@ def build_system_prompt(
             f"\nTon joueur s'appelle {player().name}. Appelle-le par ce prénom de temps en "
             "temps (pas à chaque réponse), toujours écrit ainsi.\n"
         )
-    from alicia.core.personality import load
+    from alicia.core.personality import DECHAINE_LIMITS, load, mode, wild_text
 
     character = load(current().key)
     if character:
@@ -135,6 +135,12 @@ def build_system_prompt(
             f"sans jamais jouer à sa place, et tu restes {mate}, "
             "sans aucun contenu romantique ou sexuel) :\n"
             f"<personnalite>\n{character}\n</personnalite>\n"
+        )
+    if mode() == "dechaine":  # « mode déchaîné » : demandé par le joueur, à la voix ou Profil
+        prompt += (
+            "\nMODE DÉCHAÎNÉ (activé par le joueur, prioritaire sur le ton habituel ci-dessus) :"
+            f"\n<mode_dechaine>\n{wild_text(current().key)}\n</mode_dechaine>\n"
+            f"{DECHAINE_LIMITS}\n"
         )
     from alicia.core.rules import Rules
 
