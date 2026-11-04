@@ -261,7 +261,8 @@ class StreamSettings:
     ov_width: int = 520  # largeur max des sous-titres (px)
     ov_font: int = 18  # taille du texte (px)
     ov_alpha: int = 90  # opacité du fond des sous-titres (%)
-    ov_subtitles: bool = True
+    ov_subtitles: bool = True  # la bulle de texte (ses réponses)
+    ov_robot: bool = True  # le robot ; décoché : seule la bulle apparaît, quand il parle
     ov_roam: bool = False  # il se promène dans toute la source
     chat_regulars: bool = True  # se souvenir des habitués du chat
     chat_reactions: bool = True  # petites réactions sur l'overlay aux messages du chat
@@ -428,6 +429,7 @@ def _overlay_style(stream: dict) -> dict:  # type: ignore[type-arg]
         "ov_font": number("ov_font", 18, 10, 60),
         "ov_alpha": number("ov_alpha", 90, 0, 100),
         "ov_subtitles": bool(stream.get("ov_subtitles", True)),
+        "ov_robot": bool(stream.get("ov_robot", True)),
         "ov_roam": bool(stream.get("ov_roam", False)),
     }
 

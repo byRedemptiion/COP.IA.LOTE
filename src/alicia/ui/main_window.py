@@ -1478,6 +1478,7 @@ class MainWindow(QMainWindow):
             "ov_font",
             "ov_alpha",
             "ov_subtitles",
+            "ov_robot",
             "ov_roam",
             "clip_app",
             "clip_auto",
@@ -1492,6 +1493,7 @@ class MainWindow(QMainWindow):
                 "chat_say_names": bool,
                 "overlay_voice": bool,
                 "ov_subtitles": bool,
+                "ov_robot": bool,
                 "ov_roam": bool,
                 "clip_auto": bool,
                 "chat_regulars": bool,
@@ -2350,6 +2352,7 @@ class MainWindow(QMainWindow):
             "font": stream.ov_font,
             "alpha": stream.ov_alpha,
             "subtitles": stream.ov_subtitles,
+            "robot": stream.ov_robot,
             "roam": stream.ov_roam,
         }
 

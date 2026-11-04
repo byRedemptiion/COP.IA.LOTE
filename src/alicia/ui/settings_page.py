@@ -573,7 +573,7 @@ class SettingsPage(QWidget):
             "dans le mélangeur (volume, muet). Elle flotte, bouge toute seule, "
             "s'allume quand elle écoute, réfléchit ou parle, et ses réponses s'affichent en "
             "sous-titres.<br>Options à ajouter à l'adresse : <b>?size=200</b> (taille), "
-            "<b>&amp;bulle=0</b> (sans sous-titres), <b>&amp;side=top</b> (sous-titres "
+            "<b>&amp;bulle=0</b> (sans sous-titres), <b>&amp;robot=0</b> (la bulle seule), <b>&amp;side=top</b> (sous-titres "
             "au-dessus), <b>&amp;roam=1</b> (elle se promène : mets la source en 1920 × 1080)."
             "<br>Animations : voir Réglages → Profil → Animations (les mêmes fichiers servent "
             "au rond de l'appli et à OBS)."
@@ -1801,7 +1801,28 @@ class SettingsPage(QWidget):
         panel, grid = _panel()
         grid.addWidget(_title("🎛  BULLE STREAM (OBS / STREAMLABS)"), 0, 0, 1, 3)
         self.ov_widgets: dict[str, QWidget] = {}
-        row = 1
+        # Ce qui apparaît sur le live : en tête, pour l'activer / le couper vite
+        self.ov_robot = QCheckBox("🤖  Robot")
+        self.ov_robot.setToolTip("Décoché : pas de robot, seule la bulle apparaît quand il parle")
+        self.ov_robot.toggled.connect(lambda on: self._emit("ov_robot", on))
+        self.ov_subtitles = QCheckBox("💬  Texte (bulle de ses réponses)")
+        self.ov_subtitles.setToolTip("Décoché : il parle sans afficher de texte")
+        self.ov_subtitles.toggled.connect(lambda on: self._emit("ov_subtitles", on))
+        shown = QHBoxLayout()
+        shown.addWidget(self.ov_robot)
+        shown.addSpacing(18)
+        shown.addWidget(self.ov_subtitles)
+        shown.addStretch(1)
+        grid.addWidget(QLabel("Afficher"), 1, 0)
+        grid.addLayout(shown, 1, 1, 1, 2)
+        grid.addWidget(
+            _muted("Robot décoché + Texte coché : seule la bulle apparaît, quand il parle."),
+            2,
+            1,
+            1,
+            2,
+        )
+        row = 3
         for key, label, low, high, unit in (
             ("ov_size", "Taille du robot", 80, 900, " px"),
             ("ov_width", "Largeur des sous-titres", 160, 1600, " px"),
@@ -1836,12 +1857,10 @@ class SettingsPage(QWidget):
         grid.addWidget(QLabel("Sous-titres"), row, 0)
         grid.addWidget(self.ov_side, row, 1, 1, 2)
         row += 1
-        self.ov_subtitles = QCheckBox("Afficher ses réponses en sous-titres")
-        self.ov_subtitles.toggled.connect(lambda on: self._emit("ov_subtitles", on))
         self.ov_roam = QCheckBox("Il se promène dans toute la source (mets-la en 1920 × 1080)")
         self.ov_roam.toggled.connect(lambda on: self._emit("ov_roam", on))
-        grid.addWidget(self.ov_subtitles, row, 0, 1, 3)
-        grid.addWidget(self.ov_roam, row + 1, 0, 1, 3)
+        grid.addWidget(self.ov_roam, row, 0, 1, 3)
+        grid.addWidget(QWidget(), row + 1, 0)
         sample = QPushButton("💬  Afficher un exemple")
         sample.clicked.connect(lambda: self._emit("overlay_sample", True))
         self.ov_preview_button = QPushButton("👁  Aperçu en direct")
@@ -1921,6 +1940,7 @@ class SettingsPage(QWidget):
                 self.twitch_code.setText("✓ compte connecté")
             self.clip_state.setText("✓ accès enregistré" if stream.clip_token else "")
             self.ov_subtitles.setChecked(stream.ov_subtitles)
+            self.ov_robot.setChecked(stream.ov_robot)
             self.ov_roam.setChecked(stream.ov_roam)
         finally:
             self._loading = False

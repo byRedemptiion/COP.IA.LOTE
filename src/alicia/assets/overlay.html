@@ -113,6 +113,14 @@
   #bubble.right { left: calc(100% + var(--gap)); }
   #bubble.left.show, #bubble.right.show { transform: translateY(-50%); }
   #asked { color: var(--gold); font-size: .82em; margin-bottom: 3px; }
+  /* Sans robot : seule la bulle, au centre de la source, quand il parle */
+  html.norobot #float, html.norobot .react { visibility: hidden; }
+  html.norobot #bubble, html.norobot #bubble.top, html.norobot #bubble.left,
+  html.norobot #bubble.right {
+    top: 50%; bottom: auto; left: 50%; right: auto; transform: translate(-50%, -40%);
+  }
+  html.norobot #bubble.show, html.norobot #bubble.left.show,
+  html.norobot #bubble.right.show { transform: translate(-50%, -50%); }
   /* Réactions au chat : un émoji qui s'envole au-dessus du robot */
   .react {
     position: absolute; left: 50%; top: 8%; font-size: calc(var(--size) * .2);
@@ -146,6 +154,7 @@ const params = new URLSearchParams(location.search);
 // les options de l'adresse (?size=…, &bulle=0, &side=top, &roam=1) restent prioritaires.
 let size = 260;
 let withBubble = true;
+let withRobot = true;
 let roam = false;
 const root = document.documentElement.style;
 const body = document.body;
@@ -167,7 +176,9 @@ function applyStyle(s) {
   s = s || {};
   size = Math.max(80, Math.min(1200, +params.get("size") || +s.size || 260));
   withBubble = params.has("bulle") ? params.get("bulle") !== "0" : s.subtitles !== false;
-  roam = params.has("roam") ? params.get("roam") === "1" : !!s.roam;
+  withRobot = params.has("robot") ? params.get("robot") !== "0" : s.robot !== false;
+  document.documentElement.classList.toggle("norobot", !withRobot);  // body : état du robot
+  roam = withRobot && (params.has("roam") ? params.get("roam") === "1" : !!s.roam);
   root.setProperty("--size", size + "px");
   root.setProperty("--gap", Math.round(size * 0.1) + "px");
   root.setProperty("--bubble-w", (+s.width || Math.round(size * 2.4)) + "px");
@@ -185,13 +196,13 @@ function placeWalker(side) {
   const half = Math.round(size * 0.6 + 12) + "px";  // rayon + anneaux extérieurs
   const walker = $("walker");
   walker.style.transition = "left .4s ease, top .4s ease";  // placement rapide (pas la promenade)
-  const bubbleOn = withBubble;
+  const bubbleOn = withBubble && withRobot;  // sans robot : la bulle seule, au centre
   walker.style.left = !bubbleOn ? "50%" : side === "right" ? half
     : side === "left" ? `calc(100% - ${half})` : "50%";
   walker.style.top = !bubbleOn ? "50%" : side === "bottom" ? half
     : side === "top" ? `calc(100% - ${half})` : "50%";
   // Les sous-titres ne débordent jamais de la source
-  const room = side === "left" || side === "right"
+  const room = withRobot && (side === "left" || side === "right")
     ? window.innerWidth - size - size * 0.1 - 48 : window.innerWidth - 24;
   root.setProperty("--bubble-room", Math.max(120, room) + "px");
 }

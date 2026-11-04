@@ -214,6 +214,17 @@ def test_overlay_style_is_live_and_sample_shows_text(qt_app, tmp_path, monkeypat
         style = [d for k, d in sent if k == "style"][-1]
         assert style["side"] == "left" and style["size"] == 340
         assert window._overlay_config()["style"]["side"] == "left"
+        # Afficher : robot / texte (la bulle seule quand il parle)
+        window.show_page(2, "stream")
+        page = window.settings_page
+        assert page.ov_robot.isChecked() and page.ov_subtitles.isChecked()
+        page.ov_robot.setChecked(False)
+        assert window.services.settings.stream.ov_robot is False
+        style = [d for k, d in sent if k == "style"][-1]
+        assert style["robot"] is False and style["subtitles"] is True
+        page.ov_subtitles.setChecked(False)
+        assert [d for k, d in sent if k == "style"][-1]["subtitles"] is False
+        assert load_settings().stream.ov_robot is False  # gardé
         window.change_setting("overlay_sample", True)
         assert any(k == "text" and "spectateur" in d["question"].lower() for k, d in sent)
     finally:
