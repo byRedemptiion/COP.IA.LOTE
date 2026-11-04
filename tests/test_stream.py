@@ -229,3 +229,13 @@ def test_overlay_style_is_live_and_sample_shows_text(qt_app, tmp_path, monkeypat
         assert any(k == "text" and "spectateur" in d["question"].lower() for k, d in sent)
     finally:
         window.close()
+
+
+def test_chat_counts_show_what_is_read():
+    from alicia.stream.chat import ChatGate, ChatMessage
+
+    gate = ChatGate(names=("viirus",), trigger="mention")
+    gate.offer(ChatMessage("Bob", "salut tout le monde", 0.0))
+    assert (gate.seen, gate.kept, gate.last_skip) == (1, 0, "pas pour lui")
+    gate.offer(ChatMessage("Bob", "viirus tu joues à quoi ?", 0.0))
+    assert (gate.seen, gate.kept) == (2, 1)

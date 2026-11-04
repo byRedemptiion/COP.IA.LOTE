@@ -137,11 +137,18 @@ class ChatGate:
 
     def offer(self, message: ChatMessage) -> bool:
         ok, why = self.wanted(message)
+        self.seen += 1
         if ok:
             self.queue.append(message)
+            self.kept += 1
         else:
+            self.last_skip = why
             log.debug("Chat : ignoré (%s)", why)
         return ok
+
+    seen = 0  # messages lus depuis le démarrage
+    kept = 0  # messages retenus pour une réponse
+    last_skip = ""  # pourquoi le dernier message a été laissé de côté
 
     def next(self, now: float | None = None) -> ChatMessage | None:
         """Le message à traiter maintenant (ou None : délai, file vide, trop vieux)."""

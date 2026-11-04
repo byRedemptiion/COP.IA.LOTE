@@ -36,6 +36,7 @@ class StreamMode(QObject):
         self.window = window
         self.chat: TwitchChat | None = None
         self.gate = ChatGate()
+        self.gate.seen = self.gate.kept = 0
         from alicia.stream.viewers import ViewerBook
 
         self.viewers = ViewerBook()  # habitués du chat (sur ce PC)
@@ -75,6 +76,7 @@ class StreamMode(QObject):
             return "Indique d'abord ta chaîne Twitch : Réglages → Stream."
         self.stop()
         self.configure()
+        self.gate.seen = self.gate.kept = 0
         self.chat = TwitchChat(channel, self.bridge.message.emit)
         self.chat.on_status = self.bridge.status.emit
         self.chat.start()
@@ -177,8 +179,25 @@ class StreamMode(QObject):
         if self.window.services.settings.stream.chat_regulars:
             self.viewers.seen(message.user)
         self.window.chat_reaction(message.text)  # petites réactions sur l'overlay
+        if self.gate.seen == 0:
+            log.info("Chat Twitch : 1er message reçu (le chat est bien lu)")
         if self.gate.offer(message):
             log.info("Chat : message de %s retenu", message.user)
+        self._show_counts()
+
+    def _show_counts(self) -> None:
+        """« Chat : connecté · 12 lus · 1 pour lui » : on voit tout de suite s'il lit le chat."""
+        gate = self.gate
+        if self.chat is None:
+            return
+        text = f"connecté · {gate.seen} message{'s' if gate.seen > 1 else ''} lu"
+        text += "s" if gate.seen > 1 else ""
+        text += f" · {gate.kept} pour lui"
+        if gate.seen and not gate.kept and gate.last_skip == "pas pour lui":
+            text += f" (il ne répond que si on écrit « {current_persona().title} »)"
+        elif gate.seen and not gate.kept and gate.last_skip == "pas une question":
+            text += " (il ne répond qu'aux questions et quand on le nomme)"
+        self._set_status(text)
 
     def _busy(self) -> str | None:
         window = self.window
@@ -192,8 +211,13 @@ class StreamMode(QObject):
         return None
 
     def tick(self) -> None:
-        if self._busy():
+        busy = self._busy()
+        if busy:
+            if self.gate.queue and busy != getattr(self, "_told_busy", ""):
+                self._told_busy = busy  # une seule ligne au journal, pas une par seconde
+                log.info("Chat : réponse en attente (%s)", busy)
             return
+        self._told_busy = ""
         if self._thank() or self.chat is None:
             return
         message = self.gate.next()
