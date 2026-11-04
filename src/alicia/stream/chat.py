@@ -184,6 +184,18 @@ class ChatGate:
         return STREAM_RULES.format(name_rule=name_rule, ignore=IGNORE)
 
 
+_SCREEN = re.compile(
+    r"\b(?:ecran|jeu|game|partie|map|carte|build|stuff|item|objet|perso|personnage|champion|"
+    r"classe|niveau|level|boss|mob|quete|score|kill|mort|vie|pv|hp|mana|sort|skill|equipe|"
+    r"team|inventaire|arme|ici|la|ca|ce|cette|qu'est|quoi|vois|regarde|montre|joue|joues)\b"
+)
+
+
+def about_screen(text: str) -> bool:
+    """Le message parle-t-il de ce qu'on voit à l'écran ? (sinon pas d'image : plus rapide)"""
+    return bool(_SCREEN.search(_plain(text).replace("’", "'")))
+
+
 def chat_question(message: ChatMessage, say_names: bool) -> str:
     name = safe_name(message.user) if say_names else ""
     who = f"Pseudo à dire : {name}. " if name else ""

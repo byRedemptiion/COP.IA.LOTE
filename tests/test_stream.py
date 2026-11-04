@@ -239,3 +239,12 @@ def test_chat_counts_show_what_is_read():
     assert (gate.seen, gate.kept, gate.last_skip) == (1, 0, "pas pour lui")
     gate.offer(ChatMessage("Bob", "viirus tu joues à quoi ?", 0.0))
     assert (gate.seen, gate.kept) == (2, 1)
+
+
+def test_chat_sends_the_game_image_only_when_it_is_about_the_screen():
+    from alicia.stream.chat import about_screen
+
+    assert about_screen("viirus c'est quoi ce build ?")
+    assert about_screen("tu joues à quoi viirus")
+    assert not about_screen("viirus tu aimes les pizzas ?")
+    assert not about_screen("bonne soirée viirus")

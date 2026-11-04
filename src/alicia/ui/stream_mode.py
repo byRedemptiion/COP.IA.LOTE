@@ -14,7 +14,14 @@ from typing import TYPE_CHECKING
 from PySide6.QtCore import QObject, QTimer, Signal
 
 from alicia.core.persona import current as current_persona
-from alicia.stream.chat import IGNORE, ChatGate, ChatMessage, TwitchChat, chat_question
+from alicia.stream.chat import (
+    IGNORE,
+    ChatGate,
+    ChatMessage,
+    TwitchChat,
+    about_screen,
+    chat_question,
+)
 
 if TYPE_CHECKING:
     from alicia.ui.main_window import MainWindow
@@ -80,7 +87,7 @@ class StreamMode(QObject):
         self.chat = TwitchChat(channel, self.bridge.message.emit)
         self.chat.on_status = self.bridge.status.emit
         self.chat.start()
-        self.timer.start(1000)
+        self.timer.start(300)  # réactif : un message retenu part en moins d'1/3 s
         self._set_status("connexion…")
         log.info("Mode Stream : lecture du chat de #%s", channel)
         return None
@@ -103,7 +110,7 @@ class StreamMode(QObject):
         )
         self.events.on_status = self.bridge.event_status.emit
         self.events.start()
-        self.timer.start(1000)
+        self.timer.start(300)  # réactif : un message retenu part en moins d'1/3 s
         self._set_event_status("connexion…")
         return None
 
@@ -183,6 +190,7 @@ class StreamMode(QObject):
             log.info("Chat Twitch : 1er message reçu (le chat est bien lu)")
         if self.gate.offer(message):
             log.info("Chat : message de %s retenu", message.user)
+            self.window.overlay_gesture("look")  # il a vu le message : réaction immédiate
         self._show_counts()
 
     def _show_counts(self) -> None:
@@ -237,7 +245,8 @@ class StreamMode(QObject):
 
             images = ()
             context = ""
-            if frame is not None and frame.window is not None:
+            # L'image du jeu seulement si le message en parle : sinon la réponse part plus vite
+            if frame is not None and frame.window is not None and about_screen(message.text):
                 if window.services.analysis.playing(frame.window):
                     capture = window.services.settings.capture
                     images = (prepare_image(frame.image, 768, capture.jpeg_quality),)
@@ -252,11 +261,16 @@ class StreamMode(QObject):
                 ),
                 images=images,
                 system_prompt=build_system_prompt(context + rules, spoken=True, brain="rapide"),
-                max_output_tokens=300,
+                max_output_tokens=160,
                 temperature=0.6,
                 quick=True,
             )
             started = time.perf_counter()
+            log.info(
+                "[Mode Stream] message retenu il y a %.1f s, image du jeu : %s",
+                time.monotonic() - message.at,
+                "oui" if images else "non",
+            )
             from alicia.core import usage
 
             usage.add("chat")
