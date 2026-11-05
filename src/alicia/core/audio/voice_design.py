@@ -161,6 +161,46 @@ def decode_audio(data: bytes) -> np.ndarray:
     return samples
 
 
+def find_all_audio(payload: Any) -> list[str]:
+    """TOUS les morceaux audio (base64) de la réponse, dans l'ordre : Gemini découpe parfois
+    une phrase en plusieurs morceaux ; n'en garder qu'un coupait la fin du message."""
+    found: list[str] = []
+
+    def walk(item: Any) -> None:
+        if isinstance(item, dict):
+            output = item.get("output_audio") or item.get("outputAudio")
+            if isinstance(output, dict) and isinstance(output.get("data"), str):
+                found.append(output["data"])
+                return
+            mime = str(item.get("mime_type") or item.get("mimeType") or "")
+            if (item.get("type") == "audio" or mime.startswith("audio")) and isinstance(
+                item.get("data"), str
+            ):
+                found.append(item["data"])
+                return
+            inline = item.get("inlineData") or item.get("inline_data")
+            if isinstance(inline, dict) and isinstance(inline.get("data"), str):
+                found.append(inline["data"])
+                return
+            for value in item.values():
+                walk(value)
+        elif isinstance(item, list):
+            for value in item:
+                walk(value)
+
+    walk(payload)
+    return found
+
+
+def decode_all(chunks: list[str]) -> np.ndarray:
+    """Morceaux base64 (WAV ou PCM brut) → un seul son int16 24 kHz, sans rien perdre."""
+    raw = [base64.b64decode(c) for c in chunks]
+    if all(b[:4] != b"RIFF" for b in raw):
+        return decode_audio(b"".join(raw))  # PCM brut : on recolle les octets
+    parts = [decode_audio(b) for b in raw]
+    return np.concatenate(parts) if parts else np.zeros(0, np.int16)
+
+
 def find_audio(payload: Any) -> str | None:
     """Cherche les données audio (base64) dans la réponse, quelle que soit sa forme exacte."""
     if isinstance(payload, dict):
@@ -274,13 +314,13 @@ def designed_synthesizer(key: str, voice_id: str, style: str = ""):  # type: ign
             )
         except httpx.HTTPError as exc:
             raise AudioError("Voix sur mesure : Gemini injoignable.", detail=repr(exc)) from exc
-        audio = find_audio(_check(response, "Voix sur mesure"))
+        audio = find_all_audio(_check(response, "Voix sur mesure"))
         if not audio:
             body = " ".join(response.text.split())
             if any(w in body for w in ("blockReason", "PROHIBITED", "SAFETY", "blocked")):
                 raise VoiceBlocked("Voix sur mesure : phrase refusée.", detail=body[:200])
             raise AudioError("Voix sur mesure : réponse sans audio.", detail=body[:300])
-        return decode_audio(base64.b64decode(audio))
+        return decode_all(audio)
 
     return synthesize
 

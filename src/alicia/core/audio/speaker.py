@@ -11,6 +11,7 @@ from __future__ import annotations
 import asyncio
 import logging
 import queue
+import re
 import threading
 import time
 from collections import deque
@@ -258,6 +259,37 @@ GEMINI_TTS_URL = "https://generativelanguage.googleapis.com/v1beta/models/{model
 GEMINI_VOICE_STYLE = "Dis en français, d'un ton naturel et vivant de coéquipier de jeu : "
 
 
+def looks_cut(text: str, samples: np.ndarray, rate: int = TTS_SAMPLE_RATE) -> bool:
+    """Le son est-il bien trop court pour ce texte ? (Gemini s'arrête parfois en route.)
+    On parle 2 à 4 mots par seconde ; moins d'1 s pour 6 mots = la fin manque."""
+    words = len(re.findall(r"\w+", text))
+    if words < 6:
+        return False
+    return len(samples) / rate < words / 6.5
+
+
+def complete_or_retry(synthesize: Synthesizer, label: str) -> Synthesizer:
+    """Si la phrase revient tronquée, un 2e essai ; on garde le son le plus long."""
+
+    def run(text: str) -> np.ndarray:
+        samples = synthesize(text)
+        if not looks_cut(text, samples):
+            return samples
+        log.warning(
+            "Voix %s : phrase coupée (%.1f s pour %d caractères), 2e essai",
+            label,
+            len(samples) / TTS_SAMPLE_RATE,
+            len(text),
+        )
+        again = synthesize(text)
+        return again if len(again) > len(samples) else samples
+
+    warm = getattr(synthesize, "warm_up", None)
+    if warm is not None:
+        run.warm_up = warm  # type: ignore[attr-defined]
+    return run
+
+
 def pace_hint(rate: str) -> str:
     """Vitesse demandée par consigne (Gemini, ChatGPT : pas de réglage de débit chez eux)."""
     try:
@@ -295,8 +327,11 @@ def gemini_synthesizer(settings: VoiceSettings, fallback: bool = True) -> Synthe
     from alicia.core.audio import voice_design
 
     if settings.gemini_voice.startswith("voice_"):  # voix générée (Gemini 3.8)
-        designed = voice_design.designed_synthesizer(
-            settings.gemini_key.get() or "", settings.gemini_voice, _designed_style(settings)
+        designed = complete_or_retry(
+            voice_design.designed_synthesizer(
+                settings.gemini_key.get() or "", settings.gemini_voice, _designed_style(settings)
+            ),
+            "Gemini 3.8",
         )
         if not settings.gemini_key or not fallback:
             return designed
@@ -340,10 +375,16 @@ def gemini_synthesizer(settings: VoiceSettings, fallback: bool = True) -> Synthe
                 f"Voix Gemini : erreur {response.status_code}.", detail=response.text[:300]
             )
         try:
-            parts = response.json()["candidates"][0]["content"]["parts"]
-            data = base64.b64decode(
-                next(p["inlineData"]["data"] for p in parts if "inlineData" in p)
+            candidate = response.json()["candidates"][0]
+            parts = candidate["content"]["parts"]
+            # TOUS les morceaux : n'en garder qu'un coupait parfois la fin du message
+            data = b"".join(
+                base64.b64decode(p["inlineData"]["data"]) for p in parts if "inlineData" in p
             )
+            if not data:
+                raise KeyError("inlineData")
+            if candidate.get("finishReason") not in (None, "STOP"):
+                log.warning("Voix Gemini : fin anormale (%s)", candidate.get("finishReason"))
         except (KeyError, IndexError, StopIteration, ValueError) as exc:
             body = response.text
             if "blockReason" in body or "PROHIBITED" in body or "SAFETY" in body:
@@ -364,6 +405,8 @@ def gemini_synthesizer(settings: VoiceSettings, fallback: bool = True) -> Synthe
             return synthesize(text)
         except voice_design.VoiceBlocked:
             return synthesize(text)
+
+    with_retry = complete_or_retry(with_retry, "Gemini")
 
     if not settings.gemini_key or not fallback:
         return with_retry  # sans clé : le message « il faut une clé » reste affiché
@@ -916,6 +959,7 @@ class Speaker:
         pool = ThreadPoolExecutor(max_workers=2, thread_name_prefix="alicia-tts")
         futures: deque[Future] = deque()
         finished = False
+        played = False
         idle_since = time.monotonic()
 
         def pull(wait: float) -> None:
@@ -940,7 +984,13 @@ class Speaker:
                         break  # fin du texte (ou plus rien depuis 90 s)
                     pull(0.15)
                     continue
-                samples = futures.popleft().result()
+                try:
+                    samples = futures.popleft().result()
+                except AudioError as exc:
+                    # Une phrase impossible à dire ne coupe plus tout le reste du message
+                    log.error("Voix : phrase sautée (%s)", exc.detail)
+                    error = exc.user_message
+                    continue
                 if not finished and len(futures) < 2:
                     pull(0)
                 if stream is None:
@@ -957,6 +1007,7 @@ class Speaker:
                     except Exception as exc:  # noqa: BLE001 - l'overlay ne coupe jamais la voix
                         log.debug("Copie de la voix pour OBS impossible : %r", exc)
                 self.player.play(stream, samples, stop)
+                played = True
         except AudioError as exc:
             log.error("Voix : %s", exc.detail)
             error = exc.user_message
@@ -972,4 +1023,5 @@ class Speaker:
                 if not stop.is_set():
                     time.sleep(0.15)
                 self.player.close(stream)
-            self.on_state("error" if error else "idle", error)
+            # Une phrase sautée au milieu d'un message dit : pas d'« erreur » affichée
+            self.on_state("error" if error and not played else "idle", None if played else error)

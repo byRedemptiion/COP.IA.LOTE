@@ -408,3 +408,74 @@ def test_old_effect_becomes_one_of_my_voices():
     assert voice.engine == "gemini" and voice.voice == "Puck" and matches(settings, voice)
     migrate(settings)  # une seule fois
     assert len(load_custom()) == 1
+
+
+def test_gemini_audio_in_several_parts_is_kept_whole(monkeypatch):
+    first = np.full(24000, 100, dtype=np.int16).tobytes()
+    second = np.full(24000, 200, dtype=np.int16).tobytes()
+
+    def post(url, headers, json, timeout):
+        parts = [
+            {"inlineData": {"data": base64.b64encode(first).decode()}},
+            {"inlineData": {"data": base64.b64encode(second).decode()}},
+        ]
+        return httpx.Response(200, json={"candidates": [{"content": {"parts": parts}}]})
+
+    monkeypatch.setattr(httpx, "post", post)
+    settings = VoiceSettings(tts_engine="gemini", gemini_voice="Puck", gemini_key=Secret("k"))
+    samples = speaker_module.gemini_synthesizer(settings, fallback=False)("Salut toi.")
+    assert len(samples) == 48000  # les deux morceaux, pas seulement le premier
+
+
+def test_cut_sentence_is_tried_again():
+    text = "Attention il y a un ennemi juste derrière toi sur la gauche, recule vite."
+    calls = []
+
+    def synth(t):
+        calls.append(t)
+        return np.zeros(2400 if len(calls) == 1 else 24000 * 4, dtype=np.int16)
+
+    out = speaker_module.complete_or_retry(synth, "test")(text)
+    assert len(calls) == 2 and len(out) == 24000 * 4
+    assert not speaker_module.looks_cut("Ok !", np.zeros(100, np.int16))
+
+
+def test_designed_voice_keeps_every_audio_chunk():
+    from alicia.core.audio import voice_design
+
+    a = base64.b64encode(np.full(10, 1, np.int16).tobytes()).decode()
+    b = base64.b64encode(np.full(10, 2, np.int16).tobytes()).decode()
+    payload = {"outputs": [{"type": "audio", "data": a}, {"type": "audio", "data": b}]}
+    chunks = voice_design.find_all_audio(payload)
+    assert chunks == [a, b] and len(voice_design.decode_all(chunks)) == 20
+
+
+def test_one_failed_sentence_does_not_cut_the_rest():
+    played = []
+
+    class Player:
+        def open(self, device=None):
+            return object()
+
+        def play(self, stream, samples, stop):
+            played.append(len(samples))
+
+        def close(self, stream):
+            pass
+
+    def synth(text):
+        if "deux" in text:
+            raise AudioError("non", detail="phrase refusée")
+        return np.zeros(240, np.int16)
+
+    states = []
+    speaker = speaker_module.Speaker(VoiceSettings(), synthesizer=synth, player=Player())
+    speaker.on_state = lambda state, message: states.append((state, message))
+    speaker.speak(
+        "Voici la phrase un, assez longue pour rester seule. "
+        "Voilà la phrase deux, elle aussi bien assez longue. "
+        "Et enfin la phrase trois, la dernière du message."
+    )
+    speaker._thread.join(5)
+    assert len(played) == 2  # la 1re et la 3e sont dites
+    assert states[-1] == ("idle", None)
