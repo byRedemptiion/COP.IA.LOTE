@@ -682,7 +682,18 @@ class SettingsPage(QWidget):
         )
         self.duo_answers.setProperty("keep_names", True)
         self.duo_answers.toggled.connect(lambda on: self._emit("duo_robot_answers", on))
-        grid.addWidget(self.duo_answers, 9, 0, 1, 3)
+        self.duo_screen = QCheckBox(
+            "Pour lui répondre, il peut regarder mon écran (niveau, stuff…) — seule sa réponse "
+            "part, jamais l'image"
+        )
+        self.duo_screen.setProperty("keep_names", True)
+        self.duo_screen.toggled.connect(lambda on: self._emit("duo_share_screen", on))
+        answers_box = QWidget()
+        answers_layout = QVBoxLayout(answers_box)
+        answers_layout.setContentsMargins(0, 0, 0, 0)
+        answers_layout.addWidget(self.duo_answers)
+        answers_layout.addWidget(self.duo_screen)
+        grid.addWidget(answers_box, 9, 0, 1, 3)
         self.duo_ai = QComboBox()
         self.duo_ai.currentIndexChanged.connect(
             lambda _i: self._emit("duo_ai", str(self.duo_ai.currentData() or "main|"))
@@ -1512,6 +1523,7 @@ class SettingsPage(QWidget):
             self.duo_box.setChecked(duo.enabled)
             self.duo_chat.setChecked(duo.allow_chat)
             self.duo_answers.setChecked(duo.robot_answers)
+            self.duo_screen.setChecked(duo.share_screen)
             self.duo_ai.clear()
             for label, (provider, slot) in ai_choices:
                 self.duo_ai.addItem(label, f"{provider}|{slot}")

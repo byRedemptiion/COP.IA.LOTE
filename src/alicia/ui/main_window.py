@@ -1643,7 +1643,13 @@ class MainWindow(QMainWindow):
                 else "Écris d'abord ton prénom."
             ):
                 self._notify("⚠ Voix coupée ou indisponible : vérifie Réglages → Voix.")
-        elif key in ("duo_player", "duo_allow_chat", "duo_ai", "duo_robot_answers"):
+        elif key in (
+            "duo_player",
+            "duo_allow_chat",
+            "duo_ai",
+            "duo_robot_answers",
+            "duo_share_screen",
+        ):
             from dataclasses import replace
 
             duo = self.services.settings.duo
@@ -1656,6 +1662,9 @@ class MainWindow(QMainWindow):
             elif key == "duo_robot_answers":
                 duo = replace(duo, robot_answers=bool(value))
                 self._save("duo", "robot_answers", bool(value))
+            elif key == "duo_share_screen":
+                duo = replace(duo, share_screen=bool(value))
+                self._save("duo", "share_screen", bool(value))
             else:
                 provider, _, slot = str(value).partition("|")
                 duo = replace(duo, provider=provider, key_slot=slot)
@@ -2754,20 +2763,49 @@ class MainWindow(QMainWindow):
         log.info("IA du duo : %s/%s", model.provider, model.model)
         return model
 
-    def _duo_ai(self, system: str, question: str, done, failed) -> None:  # type: ignore[no-untyped-def]
+    def _duo_ai(self, system: str, question: str, done, failed, screen=None) -> None:  # type: ignore[no-untyped-def]
         from alicia.core.ai.base import AnalysisRequest
 
         model = self._duo_model()
 
         def work() -> str:
+            images = ()
+            if screen is not None:  # l'écran de SON joueur, pour répondre d'après ce qu'il voit
+                image = screen()
+                images = (image,) if image is not None else ()
             # Réflexion minimale + marge : avec 220 jetons, la réflexion de Gemini mangeait le
             # budget et la phrase transmise arrivait coupée en plein milieu.
             request = AnalysisRequest(
-                question, (), system, max_output_tokens=600, temperature=0.8, quick=True
+                question,
+                images,
+                system,
+                max_output_tokens=600,
+                temperature=0.8,
+                quick=not images,
             )
             return model.analyze(request).text
 
         self._background(work, done, failed)
+
+    def _duo_screen(self):  # type: ignore[no-untyped-def]
+        """Image actuelle du jeu de son joueur (fil de travail), ou None : pas de jeu, refus."""
+        from alicia.core.ai.image_prep import prepare_image
+
+        frame = self._live_frame(3.0)
+        if frame is None or frame.window is None:
+            window = self.services.capture.foreground_window()
+            if window is None or window.process_id == os.getpid():
+                window = self.observed or window
+            if window is None:
+                return None
+            try:
+                frame = self.services.capture.capture(window, "window")
+            except AliciaError as exc:
+                log.info("Duo : écran non capturé pour répondre (%s)", exc.detail)
+                return None
+        capture = self.services.settings.capture
+        log.info("Duo : je regarde l'écran de mon joueur pour répondre")
+        return prepare_image(frame.image, min(capture.max_image_side, 1024), capture.jpeg_quality)
 
     @staticmethod
     def _clean_line(text: str) -> str:
@@ -2856,6 +2894,20 @@ class MainWindow(QMainWindow):
             "phrases courtes (35 mots au plus), avec ta personnalité, sans nom devant."
         )
         question = f"{other} te demande : « {str(msg.get('text') or '').strip()} »"
+        screen = self._duo_screen if self.services.settings.duo.share_screen else None
+        if screen is not None:
+            me = self._player_name() or "ton joueur"
+            system += (
+                f"\nTu as l'image ACTUELLE de l'écran de jeu de {me} (ton joueur). Si la question "
+                "porte sur sa partie (niveau, stuff, vie, quête, position…), réponds d'après ce "
+                "que tu y LIS vraiment, en donnant l'info. Si ce n'est pas visible ou lisible, "
+                "dis-le franchement. N'invente jamais.\n"
+            )
+        else:
+            system += (
+                "\nTu ne vois pas l'écran de ton joueur pour cette réponse (il ne le partage "
+                "pas) : si on te demande une info de sa partie, dis-le simplement.\n"
+            )
 
         def done(text: str) -> None:
             text = self._clean_line(text)
@@ -2881,7 +2933,7 @@ class MainWindow(QMainWindow):
             self._core_settle()
 
         self._core("thinking")
-        self._duo_ai(system, question, done, failed)
+        self._duo_ai(system, question, done, failed, screen)
 
     def _send_relay(self, text: str) -> None:
         link, other = self.duo_link, self.duo_peer or "l'autre robot"

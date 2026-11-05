@@ -290,6 +290,7 @@ class DuoSettings:
     hear_peer: bool = True  # entendre aussi l'autre robot sur ce PC, avec sa voix
     allow_chat: bool = False  # les robots ne se répondent tout seuls que si c'est autorisé
     robot_answers: bool = True  # une question posée à l'autre robot : c'est LUI qui répond
+    share_screen: bool = True  # pour répondre à l'autre robot, il peut regarder TON écran
     player: str = ""  # ton prénom, pour les messages transmis (« Redem veut savoir… »)
     provider: str = "main"  # IA du duo : main (la même) | gemini | openai | ollama
     key_slot: str = ""  # clé à utiliser (ex. GEMINI_API_KEY_2) ; vide = la clé utilisée
@@ -648,6 +649,7 @@ def load_settings(
             hear_peer=bool(_section(data, "duo").get("hear_peer", True)),
             allow_chat=bool(_section(data, "duo").get("allow_chat", False)),
             robot_answers=bool(_section(data, "duo").get("robot_answers", True)),
+            share_screen=bool(_section(data, "duo").get("share_screen", True)),
             player=str(_section(data, "duo").get("player", "")).strip()[:24],
             provider=_choice(
                 _section(data, "duo"), "provider", "main", ("main", "gemini", "openai", "ollama")

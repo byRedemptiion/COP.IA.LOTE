@@ -1,4 +1,5 @@
 import time
+from types import SimpleNamespace
 
 import httpx
 import pytest
@@ -498,5 +499,37 @@ def test_received_screen_is_saved_and_shown(qt_app, tmp_path, monkeypatch):
     assert window.image_panel is not None and window.image_panel.isVisible()
     assert window.duo_panel.last_screen_button.isVisibleTo(window.duo_panel)
     window.image_panel.hide()
+    window.duo_link = None
+    window.close()
+
+
+def test_robot_looks_at_its_players_screen_to_answer(qt_app, tmp_path, monkeypatch):
+    from PIL import Image
+
+    window, sent = _window(qt_app, tmp_path, monkeypatch, player="Nova")
+    requests = []
+
+    class Model:
+        provider, model = "fake", "fake"
+
+        def analyze(self, request, *a, **k):
+            requests.append(request)
+            return SimpleNamespace(text="Nova est niveau 42.")
+
+    window._duo_model = lambda: Model()
+    frame = SimpleNamespace(image=Image.new("RGB", (640, 360), "red"), window=object())
+    window._live_frame = lambda max_age_s=3.0: frame
+    window._duo_received({"kind": "relay", "name": "VIIRUS", "text": "Ton niveau ?", "ask": True})
+    _wait(qt_app, lambda: any(k == "answer" for k, _ in sent))
+    assert requests[-1].images and "ACTUELLE de l'écran" in requests[-1].system_prompt
+    # Écran non partagé : pas d'image, et il le dit
+    from dataclasses import replace
+
+    duo = replace(window.services.settings.duo, share_screen=False)
+    window.services.settings = replace(window.services.settings, duo=duo)
+    sent.clear()
+    window._duo_received({"kind": "relay", "name": "VIIRUS", "text": "Ton stuff ?", "ask": True})
+    _wait(qt_app, lambda: any(k == "answer" for k, _ in sent))
+    assert not requests[-1].images and "ne le partage" in requests[-1].system_prompt
     window.duo_link = None
     window.close()
