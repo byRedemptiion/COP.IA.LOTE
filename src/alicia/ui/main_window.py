@@ -2791,7 +2791,8 @@ class MainWindow(QMainWindow):
         player = name or "ton joueur"
         last = self._duo_last_relay
         context = (
-            f"Dernier message reçu de {other} : « {last[1]} ».\n"
+            f"Dernier message reçu de {other} "
+            f"(il y a {int((time.monotonic() - last[0]) // 60)} min) : « {last[1]} ».\n"
             if last and time.monotonic() - last[0] < 600
             else ""
         )

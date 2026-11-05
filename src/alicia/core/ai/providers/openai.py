@@ -61,7 +61,7 @@ class OpenAIModel(HttpVisionModel):
         items: list[dict[str, Any]] = []
         for turn in request.history:
             items.append(
-                {"role": "user", "content": [{"type": "input_text", "text": turn.question}]}
+                {"role": "user", "content": [{"type": "input_text", "text": turn.dated_question()}]}
             )
             items.append(
                 {"role": "assistant", "content": [{"type": "output_text", "text": turn.answer}]}

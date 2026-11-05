@@ -186,7 +186,7 @@ class GeminiModel(HttpVisionModel):
     def _request(self, request: AnalysisRequest) -> tuple[str, dict[str, str], dict[str, Any]]:
         contents: list[dict[str, Any]] = []
         for turn in request.history:
-            contents.append({"role": "user", "parts": [{"text": turn.question}]})
+            contents.append({"role": "user", "parts": [{"text": turn.dated_question()}]})
             contents.append({"role": "model", "parts": [{"text": turn.answer}]})
         parts: list[dict[str, Any]] = [
             {

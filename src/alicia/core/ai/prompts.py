@@ -112,9 +112,17 @@ BRAIN_ROLES = {
 def build_system_prompt(
     game_context: str | None = None, *, spoken: bool = False, brain: str = "rapide"
 ) -> str:
+    import time as _time
+
     from alicia.core.persona import current, player
 
     prompt = BASE_SYSTEM_PROMPT.replace("{identity}", current().identity)
+    prompt += (
+        f"\nIl est {_time.strftime('%H:%M')}. Les échanges précédents portent leur ancienneté "
+        "([il y a 6 min]…) : ce qui s'est passé avant est TERMINÉ sauf si l'image actuelle "
+        "montre le contraire. Ne parle jamais d'un combat, d'un boss ou d'un moment passé "
+        "comme s'il était en cours.\n"
+    )
     if player().name:
         prompt += (
             f"\nTon joueur s'appelle {player().name}. Appelle-le par ce prénom de temps en "

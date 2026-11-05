@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import threading
+import time
 from collections import deque
 
 from alicia.core.ai.base import Turn
@@ -23,7 +24,7 @@ class SessionContext:
 
     def record(self, question: str, answer: str) -> None:
         with self._lock:
-            self._turns.append(Turn(question, answer))
+            self._turns.append(Turn(question, answer, time.time()))
 
     def clear(self) -> None:
         with self._lock:

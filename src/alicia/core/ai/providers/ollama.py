@@ -48,7 +48,7 @@ class OllamaModel(HttpVisionModel):
             )
         messages: list[dict[str, Any]] = [{"role": "system", "content": request.system_prompt}]
         for turn in request.history:
-            messages.append({"role": "user", "content": turn.question})
+            messages.append({"role": "user", "content": turn.dated_question()})
             messages.append({"role": "assistant", "content": turn.answer})
         messages.append(
             {

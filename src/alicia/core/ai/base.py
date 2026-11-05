@@ -33,6 +33,26 @@ class Source:
 class Turn:
     question: str
     answer: str
+    at: float = 0.0  # heure de l'échange (time.time()) ; 0 = inconnue
+
+    def dated_question(self, now: float | None = None) -> str:
+        """La question avec son ancienneté (« [il y a 6 min] … ») : l'IA sait que c'est passé."""
+        if not self.at:
+            return self.question
+        return f"[{ago(self.at, now)}] {self.question}"
+
+
+def ago(at: float, now: float | None = None) -> str:
+    """« à l'instant », « il y a 3 min », « il y a 1 h 20 »."""
+    import time as _time
+
+    seconds = max(0, int((_time.time() if now is None else now) - at))
+    if seconds < 60:
+        return "à l'instant"
+    minutes = seconds // 60
+    if minutes < 60:
+        return f"il y a {minutes} min"
+    return f"il y a {minutes // 60} h {minutes % 60:02d}"
 
 
 @dataclass(frozen=True)

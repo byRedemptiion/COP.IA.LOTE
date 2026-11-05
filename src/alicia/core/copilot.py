@@ -137,6 +137,7 @@ class CopilotGate:
         self.last_fun_at: float | None = None
         self.last_trash_at: float | None = None
         self.recent: deque[str] = deque(maxlen=5)
+        self.recent_at: deque[float] = deque(maxlen=5)  # heure (time.time()) de chaque phrase
 
     @property
     def categories(self) -> list[str]:
@@ -184,6 +185,7 @@ class CopilotGate:
         if category == "trashtalk":
             self.last_trash_at = now
         self.recent.append(message)
+        self.recent_at.append(time.time())
 
     def rules(self) -> str:
         allowed = self.categories or ["conseil"]
@@ -200,8 +202,18 @@ class CopilotGate:
     def recent_note(self) -> str:
         if not self.recent:
             return ""
-        lines = "\n".join(f"- {m}" for m in self.recent)
-        return f"Déjà dit récemment (ne le répète pas) :\n{lines}"
+        from alicia.core.ai.base import ago
+
+        stamps = list(self.recent_at)[-len(self.recent) :]
+        stamps = [0.0] * (len(self.recent) - len(stamps)) + stamps
+        lines = "\n".join(
+            f"- [{ago(at)}] {m}" if at else f"- {m}"
+            for m, at in zip(self.recent, stamps, strict=True)
+        )
+        return (
+            "Déjà dit récemment (ne le répète pas ; c'est du PASSÉ, horodaté : ne reparle pas "
+            f"d'un combat ou d'un boss terminé, fie-toi à l'image actuelle) :\n{lines}"
+        )
 
 
 class Copilot:
