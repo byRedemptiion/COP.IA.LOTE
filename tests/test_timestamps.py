@@ -45,3 +45,19 @@ def test_copilot_remark_is_remembered_as_its_own(qt_app, tmp_path, monkeypatch):
         assert "TOI tu as dit" in build_system_prompt()
     finally:
         window.close()
+
+
+def test_name_is_not_repeated_every_sentence():
+    from alicia.core import persona
+
+    persona.set_player("Redem")
+    persona._name_said_at["t"] = -1e9
+    try:
+        assert "rarement" in build_system_prompt()
+        persona.pronounce("Bien joué Redem, continue !")  # il vient de le dire
+        assert "ne l'écris PAS" in build_system_prompt()
+        persona._name_said_at["t"] -= persona.NAME_PAUSE_S + 1  # 10 min plus tard
+        assert "ne l'écris PAS" not in build_system_prompt()
+    finally:
+        persona.set_player("")
+        persona._name_said_at["t"] = -1e9

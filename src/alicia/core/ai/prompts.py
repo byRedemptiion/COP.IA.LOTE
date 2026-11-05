@@ -114,7 +114,7 @@ def build_system_prompt(
 ) -> str:
     import time as _time
 
-    from alicia.core.persona import current, player
+    from alicia.core.persona import current
 
     prompt = BASE_SYSTEM_PROMPT.replace("{identity}", current().identity)
     prompt += (
@@ -128,11 +128,9 @@ def build_system_prompt(
         "lui attribue jamais ta remarque ; reconnais simplement ton erreur si tu t'es trompé "
         "(tu as pu mal lire l'écran) et regarde l'image actuelle.\n"
     )
-    if player().name:
-        prompt += (
-            f"\nTon joueur s'appelle {player().name}. Appelle-le par ce prénom de temps en "
-            "temps (pas à chaque réponse), toujours écrit ainsi.\n"
-        )
+    from alicia.core.persona import name_rule
+
+    prompt += name_rule()  # prénom : rarement, et jamais deux fois en 10 min
     from alicia.core.personality import DECHAINE_LIMITS, load, mode, wild_text
 
     character = load(current().key)

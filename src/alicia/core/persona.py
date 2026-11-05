@@ -175,10 +175,45 @@ def register_pronunciation(written: str, spoken: str) -> None:
         _pronunciations[written] = spoken
 
 
+NAME_PAUSE_S = 600.0  # après avoir dit ton prénom, il ne le redit pas avant 10 min
+_name_said_at = {"t": -1e9}
+
+
+def note_name_said(text: str) -> None:
+    """Il vient de dire ton prénom (à voix haute) : on s'en souvient pour ne pas le répéter."""
+    import re
+    import time
+
+    name = _player.name
+    if name and re.search(rf"(?<!\w){re.escape(name)}(?!\w)", text, flags=re.IGNORECASE):
+        _name_said_at["t"] = time.monotonic()
+
+
+def name_rule() -> str:
+    """La consigne sur le prénom pour cette réponse-ci (décidée par le logiciel, pas l'IA)."""
+    import time
+
+    name = _player.name
+    if not name:
+        return ""
+    if time.monotonic() - _name_said_at["t"] < NAME_PAUSE_S:
+        return (
+            f"\nTon joueur s'appelle {name}. Tu as déjà dit son prénom il y a peu : ne l'écris "
+            "PAS dans cette réponse (sauf s'il te demande de le citer dans un message à "
+            "transmettre).\n"
+        )
+    return (
+        f"\nTon joueur s'appelle {name} (toujours écrit ainsi). N'utilise son prénom que "
+        "rarement : au plus une fois, seulement si ça sonne vraiment naturel ; la plupart du "
+        "temps, pas du tout.\n"
+    )
+
+
 def pronounce(text: str) -> str:
     """Le texte à lire à voix haute, avec les prénoms écrits comme ils se prononcent."""
     import re
 
+    note_name_said(text)
     for written, spoken in sorted(_pronunciations.items(), key=lambda kv: -len(kv[0])):
         text = re.sub(rf"(?<!\w){re.escape(written)}(?!\w)", spoken, text, flags=re.IGNORECASE)
     return text
