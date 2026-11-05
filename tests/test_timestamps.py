@@ -61,3 +61,12 @@ def test_name_is_not_repeated_every_sentence():
     finally:
         persona.set_player("")
         persona._name_said_at["t"] = -1e9
+
+
+def test_cut_answers_are_finished_or_explained():
+    from alicia.core.analysis.service import finish_cut
+
+    long = "Voici des idées. Prends un nom court et facile. Vise un truc qui"
+    assert finish_cut(long, "MAX_TOKENS") == "Voici des idées. Prends un nom court et facile."
+    assert finish_cut("Si tu veux, vise un truc qui", "SAFETY").endswith("filtre de Google)")
+    assert finish_cut("Tout va bien.", "STOP") == "Tout va bien."

@@ -81,6 +81,28 @@ DESKTOP_APPS = {
 }
 
 
+BLOCKED = ("SAFETY", "PROHIBITED_CONTENT", "BLOCKLIST", "SPII", "RECITATION")
+
+
+def finish_cut(text: str, finish_reason: str | None) -> str:
+    """Réponse arrêtée avant la fin : on le dit, au lieu d'un « vise un truc qui » muet.
+    Limite de jetons : on s'arrête à la dernière phrase complète. Filtre de Google : on
+    garde ce qui est venu et on le signale."""
+    text = text.rstrip()
+    if not text or finish_reason in (None, "STOP", "stop", "completed", "end_turn"):
+        return text
+    if finish_reason in ("MAX_TOKENS", "length", "max_output_tokens", "incomplete"):
+        log.warning("Réponse coupée par la limite de jetons (%d caractères)", len(text))
+        end = max(text.rfind(c) for c in ".!?…")
+        if end > len(text) * 0.4:
+            return text[: end + 1]
+        return text + "…"
+    if finish_reason in BLOCKED:
+        log.warning("Réponse interrompue par le filtre de contenu (%s)", finish_reason)
+        return text + " … (la suite a été bloquée par le filtre de Google)"
+    return text
+
+
 @dataclass
 class AnalysisOutcome:
     operation_id: str
@@ -261,7 +283,9 @@ class AnalysisService:
                     brain=brain,
                 ),
                 history=self.session.history(),
-                max_output_tokens=self.settings.ai.max_output_tokens,
+                # La réflexion de Gemini compte dans ce budget : avec 1024, une réponse un peu
+                # longue s'arrêtait en plein milieu (« vise un truc qui »).
+                max_output_tokens=max(self.settings.ai.max_output_tokens, 2048),
                 temperature=self.settings.ai.temperature,
                 audio=audio,
                 web_search=web_search,
@@ -372,6 +396,7 @@ class AnalysisService:
                 from alicia.core.ai.base import Source
 
                 result.sources = [Source(p.title, p.url) for p in found_pages]
+            result.text = finish_cut(result.text, result.finish_reason)
             self.session.record(question, result.text)
             if result.sources:
                 log.info(
