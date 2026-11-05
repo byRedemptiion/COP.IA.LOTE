@@ -2755,7 +2755,11 @@ class MainWindow(QMainWindow):
         model = self._duo_model()
 
         def work() -> str:
-            request = AnalysisRequest(question, (), system, max_output_tokens=220, temperature=0.8)
+            # Réflexion minimale + marge : avec 220 jetons, la réflexion de Gemini mangeait le
+            # budget et la phrase transmise arrivait coupée en plein milieu.
+            request = AnalysisRequest(
+                question, (), system, max_output_tokens=600, temperature=0.8, quick=True
+            )
             return model.analyze(request).text
 
         self._background(work, done, failed)
@@ -2763,7 +2767,7 @@ class MainWindow(QMainWindow):
     @staticmethod
     def _clean_line(text: str) -> str:
         text = re.sub(r"^\s*\**\w+\**\s*[:›]\s*", "", text.strip())
-        return text.strip(' «»"')[:400]
+        return text.strip(' «»"')[:580]  # le duo transporte 600 caractères au plus
 
     def _duo_system(self, extra: str) -> str:
         from alicia.core.ai.prompts import build_system_prompt

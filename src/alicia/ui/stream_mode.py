@@ -305,7 +305,7 @@ class StreamMode(QObject):
                 ),
                 images=images,
                 system_prompt=build_system_prompt(context + rules, spoken=True, brain="rapide"),
-                max_output_tokens=160,
+                max_output_tokens=400,  # marge : la réflexion compte dans le budget
                 temperature=0.6,
                 quick=True,
             )

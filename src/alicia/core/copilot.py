@@ -220,7 +220,7 @@ class Copilot:
                 spoken=True,
                 brain="rapide",
             ),
-            max_output_tokens=300,
+            max_output_tokens=500,  # marge : la réflexion compte dans le budget
             temperature=0.3,
             quick=True,
         )

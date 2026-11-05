@@ -251,6 +251,8 @@ class GeminiModel(HttpVisionModel):
             queries: list[str] = []
             for candidate in event.get("candidates") or []:
                 finish = candidate.get("finishReason") or finish
+                if candidate.get("finishReason") == "MAX_TOKENS":
+                    log.warning("Gemini : réponse coupée par la limite de jetons (%s)", self.model)
                 grounding = candidate.get("groundingMetadata") or {}
                 queries.extend(str(q) for q in grounding.get("webSearchQueries") or [])
                 for item in grounding.get("groundingChunks") or []:
