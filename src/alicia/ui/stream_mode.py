@@ -337,6 +337,11 @@ class StreamMode(QObject):
                 return
             if window.services.settings.stream.chat_regulars:
                 self.viewers.topic(message.user, message.text)
+            window.services.session.record(  # pour « pourquoi t'as dit ça ? » juste après
+                f"(Ce n'est pas ton joueur : un spectateur du chat, {message.user}, a écrit "
+                f"« {message.text[:200]} ». Tu lui as répondu à voix haute.)",
+                text,
+            )
             self._speak(message, text)
 
         def failed(exc: Exception) -> None:

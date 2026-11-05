@@ -59,6 +59,10 @@ from alicia.ui.workers import LogBridge, QtLogHandler, Task, VoiceBridge
 
 log = logging.getLogger("alicia.ui")
 MAX_LOG_LINES = 3000
+COPILOT_TURN = (
+    "(Personne ne t'a rien demandé : c'est TOI qui as parlé de toi-même, en mode Copilote, "
+    "après un coup d'œil à l'écran.)"
+)
 COPILOT_PROBE_MS = 1000  # Copilote : vérifie chaque seconde s'il faut regarder
 PEER_ECHO_S = 0.8  # micro encore coupé juste après la voix de l'autre robot (écho)
 NOTICES = ("⚠", "Patiente", "Mets le jeu", "Raccourci :", "Confirmation demandée")
@@ -5112,6 +5116,9 @@ class MainWindow(QMainWindow):
         mark = "⚠" if importance >= 9 else "💡"
         self.asked_label.setText(f"{mark} {current_persona().title.upper()} (COPILOTE)  ›")
         self.answer.setPlainText(message)
+        # Gardé dans la conversation comme SA phrase : si le joueur répond « il n'y en a pas »,
+        # l'IA sait qu'il parle de ce qu'ELLE a dit (et pas de ce que lui aurait vu).
+        self.services.session.record(COPILOT_TURN, message)
         self._set_status(f"{mark} {message}")
         if self._bubble_active():
             self.bubble.ask("")

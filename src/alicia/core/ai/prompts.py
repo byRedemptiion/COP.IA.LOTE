@@ -122,6 +122,11 @@ def build_system_prompt(
         "([il y a 6 min]…) : ce qui s'est passé avant est TERMINÉ sauf si l'image actuelle "
         "montre le contraire. Ne parle jamais d'un combat, d'un boss ou d'un moment passé "
         "comme s'il était en cours.\n"
+        "Certains échanges précédents commencent par « (Personne ne t'a rien demandé…) » ou "
+        "« (Un spectateur…) » : ce sont des phrases que TU as dites de toi-même. Si ton joueur "
+        "réagit (« il n'y en a pas », « c'est faux »), il parle de ce que TOI tu as dit : ne "
+        "lui attribue jamais ta remarque ; reconnais simplement ton erreur si tu t'es trompé "
+        "(tu as pu mal lire l'écran) et regarde l'image actuelle.\n"
     )
     if player().name:
         prompt += (

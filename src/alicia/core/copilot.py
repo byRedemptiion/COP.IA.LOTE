@@ -42,6 +42,8 @@ Catégories autorisées (n'en utilise AUCUNE autre) :
   false. "reason" : 3 à 8 mots pour le journal. Réponds vite : c'est un réflexe, pas une analyse.
 - "etat" : TOUJOURS rempli, 4 à 12 mots sur ce qui se passe à l'écran MAINTENANT (« combat
   contre un kobold, PV à moitié », « en ville, inventaire ouvert », « écran de chargement »).
+- Ne cite un chiffre, un niveau, un nom ou un objectif QUE si tu le lis clairement à
+  l'écran (image petite et compressée : dans le doute, ne le dis pas, ou reste général).
 - Tu conseilles et tu réagis seulement : tu ne joues jamais à la place du joueur.
 {trash}{recent}"""
 

@@ -26,3 +26,22 @@ def test_copilot_memory_and_prompt_know_the_time():
     assert "[à l'instant] Attention au kobold" in note and "PASSÉ" in note
     prompt = build_system_prompt()
     assert time.strftime("%H:%M") in prompt and "TERMINÉ" in prompt
+
+
+def test_copilot_remark_is_remembered_as_its_own(qt_app, tmp_path, monkeypatch):
+    from alicia.app import build_services
+    from alicia.core.config import load_settings
+    from alicia.ui.main_window import COPILOT_TURN, MainWindow
+
+    monkeypatch.chdir(tmp_path)
+    window = MainWindow(
+        build_services(load_settings(environ={"ALICE_AI_PROVIDER": "fake"}), demo=True)
+    )
+    window._say = lambda text: True
+    try:
+        window._copilot_speak("Attention au niveau 7 !", 8)
+        last = window.services.session.history()[-1]
+        assert last.question == COPILOT_TURN and last.answer == "Attention au niveau 7 !"
+        assert "TOI tu as dit" in build_system_prompt()
+    finally:
+        window.close()
