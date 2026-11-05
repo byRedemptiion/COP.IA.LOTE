@@ -85,14 +85,15 @@ def test_robots_take_turns(qt_app, tmp_path, monkeypatch):
     window.voice_box.setChecked(False)  # pas de voix : envoi immédiat
     from dataclasses import replace
 
-    duo = replace(window.services.settings.duo, allow_chat=True, max_turns=6)
+    # hear_peer=False : pas de synthèse de sa voix (lente sur la CI, elle retardait la réplique)
+    duo = replace(window.services.settings.duo, allow_chat=True, max_turns=6, hear_peer=False)
     window.services.settings = replace(window.services.settings, duo=duo)
     window._duo_received({"kind": "hello", "name": "VERIS", "sender": "lui"})
     assert window.duo_peer == "VERIS"
     window._duo_received(
         {"kind": "say", "name": "VERIS", "conv": "c1", "turn": 1, "max": 3, "text": "Salut !"}
     )
-    deadline = time.monotonic() + 5
+    deadline = time.monotonic() + 20
     while not any(kind == "say" for kind, _ in sent) and time.monotonic() < deadline:
         qt_app.processEvents()
         time.sleep(0.02)
