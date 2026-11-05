@@ -59,6 +59,7 @@ from alicia.ui.workers import LogBridge, QtLogHandler, Task, VoiceBridge
 
 log = logging.getLogger("alicia.ui")
 MAX_LOG_LINES = 3000
+COPILOT_PROBE_MS = 1000  # Copilote : vérifie chaque seconde s'il faut regarder
 PEER_ECHO_S = 0.8  # micro encore coupé juste après la voix de l'autre robot (écho)
 NOTICES = ("⚠", "Patiente", "Mets le jeu", "Raccourci :", "Confirmation demandée")
 VISION_CHOICES = (
@@ -834,9 +835,9 @@ class MainWindow(QMainWindow):
         gate.cooldown_s = float(source.get("cooldown_s", general.cooldown_s))
         gate.kinds = kinds_from(str(source.get("kinds", general.kinds)))
         gate.trash = str(source.get("trash", general.trash))
-        interval = float(source.get("interval_s", general.interval_s))
-        if general.enabled and self.copilot_timer.interval() != int(interval * 1000):
-            self.copilot_timer.start(int(interval * 1000))
+        # Intervalle de base (adapté ensuite au mouvement à l'écran) ; le minuteur, lui,
+        # vérifie chaque seconde s'il faut regarder (sans appel à l'IA tant que rien ne bouge)
+        self._copilot_base_s = float(source.get("interval_s", general.interval_s))
         label = getattr(self.settings_page, "copilot_game_state", None)
         if label is not None:
             if key == "general":
@@ -4872,8 +4873,11 @@ class MainWindow(QMainWindow):
         self.copilot.gate.kinds = kinds_from(settings.kinds)
         self.copilot.gate.trash = settings.trash
         self._copilot_game_key = None  # les réglages propres au jeu seront réappliqués
+        self._copilot_base_s = settings.interval_s
         if on:
-            self.copilot_timer.start(int(settings.interval_s * 1000))
+            self.copilot.motion.reset()
+            self.copilot.state.clear()
+            self.copilot_timer.start(COPILOT_PROBE_MS)
         else:
             self.copilot_timer.stop()
         self.orb.copilot_on = bool(on)
@@ -4920,6 +4924,14 @@ class MainWindow(QMainWindow):
             return "quelqu'un parle déjà"
         return None
 
+    def _copilot_skip_still(self, reason: str) -> None:
+        """Écran immobile : compté une fois par intervalle (pas chaque seconde)."""
+        now = time.monotonic()
+        base = getattr(self, "_copilot_base_s", self.services.settings.copilot.interval_s)
+        if now - getattr(self, "_copilot_still_noted", 0.0) >= base:
+            self._copilot_still_noted = now
+            self._copilot_note(reason)
+
     def _copilot_note(self, why: str) -> None:
         """Compte pourquoi il se tait ; un résumé lisible dans le journal tous les 10 coups d'œil."""
         from collections import Counter
@@ -4945,6 +4957,25 @@ class MainWindow(QMainWindow):
         # Toujours l'écran de cet instant : une image vieille de 10 s, c'est un conseil en retard.
         frame = self._live_frame(1.5)
         self._apply_copilot_game()  # réglages propres au jeu en cours, s'il y en a
+        from alicia.core.copilot_motion import signature
+
+        motion = self.copilot.motion
+        base = getattr(self, "_copilot_base_s", self.services.settings.copilot.interval_s)
+        sig = None
+        if frame is not None and frame.window is not None:
+            # Vision en direct : on compare les images sur le PC, l'IA seulement si ça compte
+            sig = signature(frame.image)
+            look_now, reason = motion.decide(sig, base)
+            if not look_now:
+                if reason.startswith("écran immobile"):
+                    self._copilot_skip_still(reason)
+                return
+            log.debug("Copilote : coup d'œil (%s)", reason)
+        elif (
+            motion.last_look_at is not None
+            and time.monotonic() - motion.last_look_at < motion.interval(base)
+        ):
+            return  # sans vision en direct : au rythme de l'intervalle
         model = self.services.model
         self._copilot_running = True
         if self.core.state == "idle":
@@ -4965,6 +4996,14 @@ class MainWindow(QMainWindow):
                 return None, False, "pas de jeu au premier plan"
             if not self.services.analysis.playing(shot.window):
                 return None, False, "pas de jeu en cours (aucun appel à l'IA)"
+            shot_sig = sig
+            if shot_sig is None:  # capture faite ici : on compare quand même au dernier regard
+                shot_sig = signature(shot.image)
+                look_now, reason = motion.decide(shot_sig, base)
+                if not look_now and reason.startswith("écran immobile"):
+                    motion.looked(None)  # on retentera au prochain tour, pas avant
+                    return None, False, reason
+            motion.looked(shot_sig)
             capture = self.services.settings.capture
             image = prepare_image(  # plus petite : envoyée et lue plus vite
                 shot.image, min(capture.max_image_side, 768), capture.jpeg_quality

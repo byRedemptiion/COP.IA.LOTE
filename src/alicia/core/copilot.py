@@ -29,7 +29,7 @@ COPILOT_RULES = """
 MODE COPILOTE — personne ne t'a posé de question. Tu regardes l'écran pour décider s'il
 vaut la peine de parler MAINTENANT. Par défaut, tu te tais.
 Réponds UNIQUEMENT par un objet JSON sur une seule ligne, sans texte autour :
-{{"speak": true ou false, "importance": 1 à 10, "category": "{categories}", "message": "...", "reason": "..."}}
+{{"speak": true ou false, "importance": 1 à 10, "category": "{categories}", "message": "...", "reason": "...", "etat": "..."}}
 Catégories autorisées (n'en utilise AUCUNE autre) :
 {allowed}
 "importance" = à quel point ça vaut le coup d'être dit tout de suite :
@@ -40,6 +40,8 @@ Catégories autorisées (n'en utilise AUCUNE autre) :
 - "message" : une phrase courte à dire à voix haute (20 mots maximum), sans markdown, inventée
   à partir de ce que tu vois vraiment (jamais une phrase toute faite) ; vide si "speak" est
   false. "reason" : 3 à 8 mots pour le journal. Réponds vite : c'est un réflexe, pas une analyse.
+- "etat" : TOUJOURS rempli, 4 à 12 mots sur ce qui se passe à l'écran MAINTENANT (« combat
+  contre un kobold, PV à moitié », « en ville, inventaire ouvert », « écran de chargement »).
 - Tu conseilles et tu réagis seulement : tu ne joues jamais à la place du joueur.
 {trash}{recent}"""
 
@@ -86,6 +88,7 @@ class Decision:
     message: str
     reason: str = ""
     category: str = "conseil"
+    state: str = ""  # ce qui se passe à l'écran maintenant (pour le coup d'œil suivant)
 
 
 def parse_decision(text: str) -> Decision | None:
@@ -116,6 +119,7 @@ def parse_decision(text: str) -> Decision | None:
         message[:300],
         str(data.get("reason") or "")[:200],
         category,
+        str(data.get("etat") or data.get("state") or "")[:140],
     )
 
 
@@ -218,7 +222,11 @@ class CopilotGate:
 
 class Copilot:
     def __init__(self, gate: CopilotGate | None = None) -> None:
+        from alicia.core.copilot_motion import GameState, MotionWatch
+
         self.gate = gate or CopilotGate()
+        self.state = GameState()  # ce qu'il a vu aux derniers coups d'œil, horodaté
+        self.motion = MotionWatch()  # regarder quand l'écran bouge vraiment
 
     def observe(
         self, model: VisionModel, image: PreparedImage, game_context: str = ""
@@ -228,7 +236,7 @@ class Copilot:
             question=COPILOT_QUESTION,
             images=(image,),
             system_prompt=build_system_prompt(
-                game_context + self.gate.rules(),
+                game_context + self.state.note() + self.gate.rules(),
                 spoken=True,
                 brain="rapide",
             ),
@@ -253,6 +261,7 @@ class Copilot:
                 took,
             )
             return None, False, "réponse illisible"
+        self.state.update(decision.state)
         speak, why = self.gate.allow(decision)
         log.info(
             "[%s] [Cerveau rapide] [Copilote] %s/%s — %s, importance %d/10 → %s (%s) en %d ms%s",
@@ -266,6 +275,8 @@ class Copilot:
             took,
             f" — {decision.reason}" if decision.reason else "",
         )
+        if decision.state:
+            log.debug("Copilote : état « %s »", decision.state)
         if speak:
             self.gate.spoke(decision.message, category=decision.category)
         return decision, speak, why
