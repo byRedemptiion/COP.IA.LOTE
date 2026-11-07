@@ -35,12 +35,21 @@ def tiktok_user(text: str) -> str:
 
 
 def _who(user: object) -> str:
-    """Le pseudo affiché d'un spectateur TikTok (nickname, sinon @identifiant)."""
-    for field in ("nickname", "unique_id", "display_id"):
-        value = str(getattr(user, field, "") or "").strip()
-        if value:
-            return value[:40]
-    return "quelqu'un"
+    """Le pseudo d'un spectateur TikTok, lisible à voix haute : son nom affiché (lettres
+    stylisées 𝓝𝓸𝓿𝓪 → Nova, émojis retirés), sinon son @identifiant."""
+    import unicodedata
+
+    from alicia.stream.chat import safe_name
+
+    names = [
+        str(getattr(user, f, "") or "").strip() for f in ("nickname", "unique_id", "display_id")
+    ]
+    for raw in names:
+        plain = unicodedata.normalize("NFKC", raw)
+        plain = re.sub(r"[^\w .'-]", "", plain).strip(" .-")
+        if safe_name(plain.replace(".", " ")):
+            return plain[:40]
+    return next((n[:40] for n in names if n), "quelqu'un")
 
 
 def gift_event(event: object) -> TwitchEvent | None:

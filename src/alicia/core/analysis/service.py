@@ -245,9 +245,15 @@ class AnalysisService:
                 raise ProviderError(ProviderErrorKind.CANCELLED, "Analyse annulée.")
             self._maybe_save(frame, op_id)
 
+            from alicia.core.ai.factory import deep_reason
+
+            # Avis, stats, stuff : du texte petit à l'écran → image plus nette
+            sharp = audio is None and bool(deep_reason(question))
             image = prepare_image(
                 frame.image,
-                self.settings.capture.max_image_side,
+                max(self.settings.capture.max_image_side, 1600)
+                if sharp
+                else self.settings.capture.max_image_side,
                 self.settings.capture.jpeg_quality,
             )
             profile, game_note = self.game_for(frame.window)

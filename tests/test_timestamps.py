@@ -70,3 +70,12 @@ def test_cut_answers_are_finished_or_explained():
     assert finish_cut(long, "MAX_TOKENS") == "Voici des idées. Prends un nom court et facile."
     assert finish_cut("Si tu veux, vise un truc qui", "SAFETY").endswith("filtre de Google)")
     assert finish_cut("Tout va bien.", "STOP") == "Tout va bien."
+
+
+def test_opinion_questions_get_a_real_opinion():
+    from alicia.core.ai.factory import deep_reason
+
+    assert deep_reason("t'en penses quoi de mes stats ?")
+    assert deep_reason("qu'en penses-tu ?")
+    assert not deep_reason("il est quelle heure ?")
+    assert "tu as un vrai avis" in build_system_prompt()

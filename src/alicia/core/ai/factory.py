@@ -63,7 +63,10 @@ def deep_reason(question: str) -> str | None:
             r"\b(?:reflechis|reflechir|analyse|analyser|strategie|strategique|build|plan|"
             r"planifie|optimise|optimiser|compare|comparer|explique en detail|en detail|"
             r"meilleure? (?:facon|strategie|option|combo|rotation)|que dois-je faire|"
-            r"comment battre|comment gagner|prochaines? minutes?|toute ma partie)\b"
+            r"comment battre|comment gagner|prochaines? minutes?|toute ma partie|"
+            r"t'?en penses quoi|qu'?en penses[- ]tu|que penses[- ]tu|tu penses quoi|ton avis|"
+            r"tu trouves? (?:ca|mes|mon|ma)|c'?est (?:bien|bon|correct|nul) (?:mes|mon|ma)|"
+            r"juge|evalue|note mes|mes stats|mon stuff)\b"
         )
     plain = unicodedata.normalize("NFKD", question.casefold())
     plain = "".join(c for c in plain if not unicodedata.combining(c))

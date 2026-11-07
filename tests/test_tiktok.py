@@ -99,3 +99,15 @@ def test_stream_mode_reads_tiktok_without_twitch(qt_app, tmp_path, monkeypatch):
         assert not window.stream_mode.enabled
     finally:
         window.close()
+
+
+def test_viewer_names_are_readable_and_never_the_message():
+    from alicia.stream.chat import ChatMessage, chat_question
+    from alicia.stream.tiktok import _who
+
+    assert _who(SimpleNamespace(nickname="𝓝𝓸𝓿𝓪 ✨", unique_id="nova.j")) == "Nova"
+    assert _who(SimpleNamespace(nickname="🔥🔥", unique_id="redem.tv")) == "redem.tv"
+    question = chat_question(ChatMessage("Bob", "viirus tu joues à quoi", 0.0), True)
+    assert "Pseudo du spectateur : Bob" in question and "PAS un pseudo" in question
+    unnamed = chat_question(ChatMessage("🔥", "salut", 0.0), True)
+    assert "ne dis aucun pseudo" in unnamed
