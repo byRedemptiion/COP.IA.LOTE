@@ -202,6 +202,21 @@ class AliciaCore(QWidget):
         window = self.window()
         if window is not None and window.isMinimized():
             return
+        # Économie : 30 images/s seulement quand il parle ou t'écoute ; au repos 12 ;
+        # fenêtre principale derrière ton jeu : 4 (le rond de la bulle, lui, reste fluide).
+        main_hidden = (
+            window is not None
+            and window.windowType() == Qt.WindowType.Window  # pas la bulle (fenêtre outil)
+            and not window.isActiveWindow()
+        )
+        if main_hidden:
+            wanted = 250
+        elif self.state in ("speaking", "listening"):
+            wanted = 33
+        else:
+            wanted = 83
+        if self._timer.interval() != wanted:
+            self._timer.setInterval(wanted)
         now = time.perf_counter()
         dt, self._last = min(now - self._last, 0.1), now
         self._angle = (self._angle + 360 * SPEED.get(self.state, 0.05) * dt) % 360

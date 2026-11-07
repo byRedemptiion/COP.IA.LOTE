@@ -73,6 +73,9 @@ def edge_synthesizer(voice: str, rate: str) -> Synthesizer:
     return synthesize
 
 
+KOKORO_IDLE_S = 600.0
+
+
 def kokoro_synthesizer(voice: str, speed: float, lang: str = "fr-fr") -> Synthesizer:
     """Voix Kokoro locale (ONNX, processeur) : gratuite, hors ligne, ne prend pas le GPU."""
     state: dict[str, object] = {}
@@ -99,8 +102,28 @@ def kokoro_synthesizer(voice: str, speed: float, lang: str = "fr-fr") -> Synthes
                 log.info("Kokoro chargé en %.1f s", time.perf_counter() - started)
             return state["kokoro"]
 
+    def unload_later() -> None:
+        """Kokoro (~350 Mo) relâché après 10 min sans servir (voix de secours, essai…)."""
+        timer = state.get("timer")
+        if timer is not None:
+            timer.cancel()  # type: ignore[attr-defined]
+
+        def unload() -> None:
+            with lock:
+                if state.pop("kokoro", None) is not None:
+                    import gc
+
+                    gc.collect()
+                    log.info("Kokoro libéré de la mémoire (pas utilisé depuis 10 min)")
+
+        timer = threading.Timer(KOKORO_IDLE_S, unload)
+        timer.daemon = True
+        state["timer"] = timer
+        timer.start()
+
     def synthesize(text: str) -> np.ndarray:
         kokoro = engine()
+        unload_later()
         with lock:  # une synthèse à la fois : la session ONNX utilise déjà tous les cœurs prévus
             try:
                 audio, rate = kokoro.create(text, voice=voice, speed=speed, lang=lang)  # type: ignore[attr-defined]

@@ -453,8 +453,17 @@ class SettingsPage(QWidget):
         self.memory_usage = _muted("")
         clear_now = QPushButton("Effacer maintenant")
         clear_now.clicked.connect(lambda: self.setting_changed.emit("memory_clear", True))
+        purge = QPushButton("🧹 Purge complète")
+        purge.setToolTip(
+            "Efface la mémoire de partie, les captures enregistrées et les anciens journaux, "
+            "et libère la mémoire vive inutilisée (tes réglages, voix et screens restent)"
+        )
+        purge.clicked.connect(lambda: self.setting_changed.emit("purge", True))
+        clear_row = QHBoxLayout()
+        clear_row.addWidget(clear_now)
+        clear_row.addWidget(purge)
         grid.addWidget(self.memory_usage, 8, 0, 1, 2)
-        grid.addWidget(clear_now, 8, 2)
+        grid.addLayout(clear_row, 8, 2)
         grid.addWidget(
             _muted(
                 "Images réduites (environ 100 Ko), sur ton PC seulement, prises pendant la vision "

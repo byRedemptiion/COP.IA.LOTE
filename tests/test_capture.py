@@ -73,7 +73,7 @@ def test_recent_frames_are_bounded():
     svc = CaptureService(lambda: [], lambda w: w, lambda w: [DemoBackend()], keep_last=2)
     for _ in range(3):
         svc.capture(DEMO_WINDOW)
-    assert len(svc.recent) == 2
+    assert len(svc.recent) == 1  # une seule image pleine définition en mémoire
     assert svc.last is svc.recent[-1]
 
 

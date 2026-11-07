@@ -76,6 +76,19 @@ DEFAULT_HOTKEY_QUESTION = (
 )
 
 
+def _trim_working_set() -> bool:
+    """Windows : rend au système la mémoire que COP'IA'LOTE n'utilise plus (après une purge)."""
+    if sys.platform != "win32":
+        return False
+    try:
+        import ctypes
+
+        handle = ctypes.windll.kernel32.GetCurrentProcess()  # type: ignore[attr-defined]
+        return bool(ctypes.windll.psapi.EmptyWorkingSet(handle))  # type: ignore[attr-defined]
+    except (AttributeError, OSError):
+        return False
+
+
 def pixmap_from_image(image: Image.Image) -> QPixmap:
     rgb = image.convert("RGB")
     data = rgb.tobytes("raw", "RGB")
@@ -1103,6 +1116,46 @@ class MainWindow(QMainWindow):
         self._notify(f"Mémoire de partie effacée ({removed} image(s)).")
         self._load_settings_page()
 
+    def purge(self) -> None:
+        """🧹 Purge : mémoire de partie, captures enregistrées, anciens journaux, mémoire vive.
+        Ne touche jamais aux réglages, clés, voix, carnet, consignes ni aux screens du duo."""
+        import gc
+
+        from alicia.core.capture.timeline import Timeline
+
+        timeline = self.services.analysis.timeline or Timeline(self._memory_folder())
+        images = timeline.clear()
+        freed = 0
+        folder = self.services.settings.captures_dir
+        for path in list(folder.glob("*.png")) if folder.is_dir() else []:
+            try:
+                freed += path.stat().st_size
+                path.unlink()
+            except OSError:
+                pass
+        if self.log_file is not None:  # anciens journaux (alicia.log.1 … .10), pas celui en cours
+            for path in self.log_file.parent.glob(self.log_file.name + ".*"):
+                try:
+                    freed += path.stat().st_size
+                    path.unlink()
+                except OSError:
+                    pass
+        self.copilot.state.clear()
+        self._shown_frame = None
+        gc.collect()
+        trimmed = _trim_working_set()
+        log.info(
+            "Purge : %d image(s) de mémoire, %.0f Mo de fichiers, mémoire vive %s",
+            images,
+            freed / 1_048_576,
+            "rendue à Windows" if trimmed else "nettoyée",
+        )
+        self._notify(
+            f"🧹 Purge faite : {images} image(s) de mémoire, {freed / 1_048_576:.0f} Mo de "
+            "fichiers, mémoire vive libérée."
+        )
+        self._load_settings_page()
+
     def memory_usage_text(self) -> str:
         timeline = self.services.analysis.timeline
         if timeline is None:
@@ -1130,7 +1183,14 @@ class MainWindow(QMainWindow):
     def _show_live_frame(self) -> None:
         """Aperçu en direct dans le panneau (seulement s'il est affiché)."""
         frame = self._live_frame(5.0)
-        if frame is not None and frame is not self._shown_frame and self.isVisible():
+        # Seulement si tu regardes la fenêtre : derrière ton jeu, aucune conversion d'image
+        if (
+            frame is not None
+            and frame is not self._shown_frame
+            and self.isVisible()
+            and not self.isMinimized()
+            and self.isActiveWindow()
+        ):
             self._shown_frame = frame
             self._show_frame(frame)
 
@@ -1441,6 +1501,8 @@ class MainWindow(QMainWindow):
                 self._load_settings_page()
         elif key == "memory_clear":
             self.clear_memory()
+        elif key == "purge":
+            self.purge()
         elif key == "live_interval_s":
             from dataclasses import replace
 
@@ -5381,7 +5443,11 @@ class MainWindow(QMainWindow):
         handler(value)
 
     def _show_frame(self, frame: Frame) -> None:
-        self.preview.set_image(pixmap_from_image(frame.image))
+        image = frame.image
+        if max(image.size) > 1280:  # l'aperçu est petit : inutile de convertir du 4K
+            image = image.copy()
+            image.thumbnail((1280, 1280))
+        self.preview.set_image(pixmap_from_image(image))
         info = (
             f"{frame.width}×{frame.height} — {frame.backend} — "
             f"{frame.captured_at.astimezone():%H:%M:%S} — {frame.duration_ms} ms"

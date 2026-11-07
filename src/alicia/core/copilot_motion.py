@@ -29,7 +29,8 @@ MAX_SKIP_S = 120.0  # écran immobile : un coup d'œil de contrôle toutes les 2
 
 def signature(image) -> np.ndarray:  # type: ignore[no-untyped-def]
     """Miniature en niveaux de gris (valeurs 0-1) : quelques millisecondes."""
-    small = image.convert("L").resize(SIZE)
+    factor = max(1, min(image.width // (SIZE[0] * 4), image.height // (SIZE[1] * 4)))
+    small = (image.reduce(factor) if factor > 1 else image).convert("L").resize(SIZE)
     return np.asarray(small, dtype=np.float32) / 255.0
 
 

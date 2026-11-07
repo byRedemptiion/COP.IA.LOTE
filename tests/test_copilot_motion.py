@@ -45,3 +45,12 @@ def test_game_state_knows_what_is_over():
     assert "en ville, inventaire ouvert (depuis 10 s)" in note
     decision = parse_decision('{"speak": false, "importance": 2, "etat": "écran de chargement"}')
     assert decision.state == "écran de chargement"
+
+
+def test_signature_is_cheap_on_big_screens():
+    import time
+
+    big = Image.new("RGB", (3840, 2160), (90, 30, 30))
+    started = time.perf_counter()
+    sig = signature(big)
+    assert sig.shape == (18, 32) and time.perf_counter() - started < 0.2

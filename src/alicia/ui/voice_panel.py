@@ -516,14 +516,14 @@ class VoicePanel(QFrame):
         self.speak_box.blockSignals(True)
         self.speak_box.setChecked(voice.speak_answers)
         self.speak_box.blockSignals(False)
-        self.refresh_status()
+        self.refresh_status(force=True)
         if self.editing:
             self._load_editor()
         self._mark_library()
 
-    def refresh_status(self) -> None:
-        if self.voice is None:
-            return
+    def refresh_status(self, force: bool = False) -> None:
+        if self.voice is None or (not force and not self.isVisible()):
+            return  # minuteur : rien à rafraîchir quand l'onglet n'est pas affiché
         from alicia.core.audio.speaker import backup_in_use
 
         self.in_use = backup_in_use()

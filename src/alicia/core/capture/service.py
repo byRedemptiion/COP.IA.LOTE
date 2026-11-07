@@ -70,7 +70,9 @@ class CaptureService:
         self._lister = lister
         self._refresher = refresher
         self._chain = chain
-        self.recent: deque[Frame] = deque(maxlen=keep_last)
+        # Seule la dernière image sert : en garder 5 en pleine définition coûtait jusqu'à
+        # 150 Mo de mémoire (une image 4K non compressée ≈ 33 Mo).
+        self.recent: deque[Frame] = deque(maxlen=1)
 
     # --- fabriques ----------------------------------------------------------------------------
 

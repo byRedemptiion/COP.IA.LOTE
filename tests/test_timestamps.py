@@ -79,3 +79,24 @@ def test_opinion_questions_get_a_real_opinion():
     assert deep_reason("qu'en penses-tu ?")
     assert not deep_reason("il est quelle heure ?")
     assert "tu as un vrai avis" in build_system_prompt()
+
+
+def test_purge_cleans_files_but_keeps_settings(qt_app, tmp_path, monkeypatch):
+    from alicia.app import build_services
+    from alicia.core.config import load_settings
+    from alicia.ui.main_window import MainWindow
+
+    monkeypatch.chdir(tmp_path)
+    log_file = tmp_path / "logs" / "alicia.log"
+    log_file.parent.mkdir()
+    log_file.write_text("en cours")
+    (tmp_path / "logs" / "alicia.log.1").write_text("x" * 1000)
+    window = MainWindow(
+        build_services(load_settings(environ={"ALICE_AI_PROVIDER": "fake"}), demo=True),
+        log_file=log_file,
+    )
+    try:
+        window.change_setting("purge", True)
+        assert log_file.exists() and not (tmp_path / "logs" / "alicia.log.1").exists()
+    finally:
+        window.close()
