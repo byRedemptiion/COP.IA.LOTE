@@ -389,8 +389,12 @@ def gemini_synthesizer(settings: VoiceSettings, fallback: bool = True) -> Synthe
         except httpx.HTTPError as exc:
             raise AudioError("Voix Gemini injoignable.", detail=repr(exc)) from exc
         if response.status_code == 429:
+            from alicia.core.ai.providers.gemini import CREDITS_HINT, credits_depleted
+
             raise AudioError(
-                "Voix Gemini : quota gratuit atteint pour l'instant, réessaie plus tard.",
+                f"Voix Gemini : {CREDITS_HINT}"
+                if credits_depleted(response.text)
+                else "Voix Gemini : quota gratuit atteint pour l'instant, réessaie plus tard.",
                 detail=response.text[:200],
             )
         if response.status_code >= 400:

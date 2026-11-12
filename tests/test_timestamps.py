@@ -100,3 +100,11 @@ def test_purge_cleans_files_but_keeps_settings(qt_app, tmp_path, monkeypatch):
         assert log_file.exists() and not (tmp_path / "logs" / "alicia.log.1").exists()
     finally:
         window.close()
+
+
+def test_depleted_credits_are_named_clearly():
+    from alicia.core.ai.providers.gemini import CREDITS_HINT, credits_depleted
+
+    body = '{"error": {"code": 429, "message": "Your prepayment credits are depleted."}}'
+    assert credits_depleted(body) and not credits_depleted("Quota exceeded per minute")
+    assert "Facturation" in CREDITS_HINT

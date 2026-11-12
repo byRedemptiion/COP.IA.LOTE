@@ -54,6 +54,19 @@ def seconds_until_utc_midnight() -> int:
     return int((tomorrow - now).total_seconds())
 
 
+CREDITS_HINT = (
+    "Crédits Gemini épuisés : ton compte Google est en prépayé et le solde est à 0 (ou Google "
+    "ne l'a pas encore synchronisé). Recharge-le dans AI Studio → Facturation "
+    "(aistudio.google.com) ; ce n'est pas le quota du jour, attendre ne change rien."
+)
+
+
+def credits_depleted(text: str) -> bool:
+    """Le 429 vient-il des crédits prépayés épuisés (et pas d'un quota par minute / jour) ?"""
+    lowered = text.casefold()
+    return "prepayment" in lowered or ("credits" in lowered and "deplet" in lowered)
+
+
 class GeminiModel(HttpVisionModel):
     provider = "gemini"
 
@@ -285,7 +298,9 @@ class GeminiModel(HttpVisionModel):
             )
         if status == 429:
             quota, retry_s = quota_details(body)
-            if "PerDay" in quota:
+            if credits_depleted(message):
+                hint = CREDITS_HINT
+            elif "PerDay" in quota:
                 hint = (
                     f"Quota du jour épuisé pour « {self.model} » (offre gratuite : une vingtaine "
                     "de questions par jour et par modèle). Il revient à 1 h du matin "

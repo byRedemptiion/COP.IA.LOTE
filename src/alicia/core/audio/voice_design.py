@@ -234,8 +234,12 @@ def _check(response: Any, what: str) -> dict[str, Any]:
             detail=response.text[:300],
         )
     if response.status_code == 429:
+        from alicia.core.ai.providers.gemini import CREDITS_HINT, credits_depleted
+
         raise AudioError(
-            f"{what} : quota Gemini atteint, réessaie plus tard.",
+            f"{what} : {CREDITS_HINT}"
+            if credits_depleted(response.text)
+            else f"{what} : quota Gemini atteint, réessaie plus tard.",
             detail="429 " + " ".join(response.text.split())[:300],
         )
     if response.status_code >= 400 and "safety" in response.text.casefold():
@@ -347,6 +351,12 @@ def resume_online() -> None:
 
 def _explain(exc: AudioError) -> tuple[str, float]:
     detail = (exc.detail or "") + " " + exc.user_message
+    if "Crédits Gemini épuisés" in detail:
+        return (
+            "⚠ Voix Gemini : crédits épuisés sur ton compte Google (recharge dans AI Studio → "
+            "Facturation). La voix de secours prend le relais.",
+            3600.0,
+        )
     if "429" in detail or "quota" in detail.casefold() or "RESOURCE_EXHAUSTED" in detail:
         if "PerDay" in detail or "per day" in detail.casefold() or "RPD" in detail:
             return (
