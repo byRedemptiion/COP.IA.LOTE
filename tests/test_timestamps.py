@@ -108,3 +108,14 @@ def test_depleted_credits_are_named_clearly():
     body = '{"error": {"code": 429, "message": "Your prepayment credits are depleted."}}'
     assert credits_depleted(body) and not credits_depleted("Quota exceeded per minute")
     assert "Facturation" in CREDITS_HINT
+
+
+def test_duo_line_cut_by_filter_is_trimmed_quietly():
+    from alicia.core.analysis.service import finish_cut
+
+    cut = "Je le regarde trottiner, c'est un désastre. Je lui passe le mot, même si son cadavre"
+    assert finish_cut(cut, "SAFETY", quiet=True) == "Je le regarde trottiner, c'est un désastre."
+    assert finish_cut("tu comptes y aller ou t'as besoin qu'", "SAFETY", quiet=True).endswith(
+        "qu'…"
+    )
+    assert finish_cut("Tout va bien !", "STOP", quiet=True) == "Tout va bien !"

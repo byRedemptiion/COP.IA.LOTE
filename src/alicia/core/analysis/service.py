@@ -84,7 +84,7 @@ DESKTOP_APPS = {
 BLOCKED = ("SAFETY", "PROHIBITED_CONTENT", "BLOCKLIST", "SPII", "RECITATION")
 
 
-def finish_cut(text: str, finish_reason: str | None) -> str:
+def finish_cut(text: str, finish_reason: str | None, quiet: bool = False) -> str:
     """Réponse arrêtée avant la fin : on le dit, au lieu d'un « vise un truc qui » muet.
     Limite de jetons : on s'arrête à la dernière phrase complète. Filtre de Google : on
     garde ce qui est venu et on le signale."""
@@ -99,6 +99,9 @@ def finish_cut(text: str, finish_reason: str | None) -> str:
         return text + "…"
     if finish_reason in BLOCKED:
         log.warning("Réponse interrompue par le filtre de contenu (%s)", finish_reason)
+        if quiet:  # duo : phrase propre, sans mention technique envoyée à l'autre robot
+            end = max(text.rfind(c) for c in ".!?…")
+            return text[: end + 1] if end > len(text) * 0.4 else text + "…"
         return text + " … (la suite a été bloquée par le filtre de Google)"
     return text
 

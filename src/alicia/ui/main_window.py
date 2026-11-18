@@ -2853,6 +2853,7 @@ class MainWindow(QMainWindow):
 
     def _duo_ai(self, system: str, question: str, done, failed, screen=None) -> None:  # type: ignore[no-untyped-def]
         from alicia.core.ai.base import AnalysisRequest
+        from alicia.core.analysis.service import finish_cut
 
         model = self._duo_model()
 
@@ -2863,15 +2864,15 @@ class MainWindow(QMainWindow):
                 images = (image,) if image is not None else ()
             # Réflexion minimale + marge : avec 220 jetons, la réflexion de Gemini mangeait le
             # budget et la phrase transmise arrivait coupée en plein milieu.
+            # Même avec l'écran, réflexion minimale : une phrase courte n'en a pas besoin, et la
+            # réflexion mangeait le budget (« t'as besoin qu' », « même si son cadavre »).
             request = AnalysisRequest(
-                question,
-                images,
-                system,
-                max_output_tokens=600,
-                temperature=0.8,
-                quick=not images,
+                question, images, system, max_output_tokens=1024, temperature=0.8, quick=True
             )
-            return model.analyze(request).text
+            result = model.analyze(request)
+            if result.finish_reason not in (None, "STOP", "stop", "completed", "end_turn"):
+                log.warning("Duo : réponse arrêtée avant la fin (%s)", result.finish_reason)
+            return finish_cut(result.text, result.finish_reason, quiet=True)
 
         self._background(work, done, failed)
 
