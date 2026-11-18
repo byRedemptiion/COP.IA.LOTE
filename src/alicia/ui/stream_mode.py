@@ -15,12 +15,14 @@ from PySide6.QtCore import QObject, QTimer, Signal
 
 from alicia.core.persona import current as current_persona
 from alicia.stream.chat import (
+    _GREETING,
     IGNORE,
     ChatGate,
     ChatMessage,
     TwitchChat,
     about_screen,
     chat_question,
+    drop_greeting,
 )
 
 if TYPE_CHECKING:
@@ -354,6 +356,9 @@ class StreamMode(QObject):
     def _speak(self, message: ChatMessage, text: str) -> None:
         window = self.window
         text = text.replace(IGNORE, "").strip()
+        # Pas de « Re ! » à chaque réponse ; on ne salue qu'un nouveau venu qui dit bonjour
+        hello_only = len(message.text.split()) <= 3 and bool(_GREETING.match(message.text))
+        text = drop_greeting(text, keep=message.first and hello_only)
         title = current_persona().title.upper()
         where = "TikTok · " if message.platform == "tiktok" else ""
         window.asked_label.setText(f"💬 {where}{message.user}  ›  {message.text[:80]}")

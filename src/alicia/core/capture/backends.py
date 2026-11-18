@@ -22,6 +22,18 @@ class CaptureBackend(Protocol):
     def grab(self, window: WindowInfo) -> np.ndarray: ...
 
 
+# Une seule session de capture Windows à la fois (vision en direct, Copilote, duo… se
+# relaient) ; et on compte celles qui ne se sont pas refermées : des centaines de sessions
+# GPU laissées ouvertes sur des heures peuvent faire planter le pilote graphique, voire le PC.
+_WGC_LOCK = threading.Lock()
+_OPEN = {"n": 0}
+
+
+def open_captures() -> int:
+    """Sessions de capture Windows démarrées et pas encore refermées."""
+    return _OPEN["n"]
+
+
 class WgcBackend:
     """Windows Graphics Capture via ``windows-capture`` (Rust, accéléré GPU).
 
@@ -39,7 +51,7 @@ class WgcBackend:
 
     def grab(self, window: WindowInfo) -> np.ndarray:
         try:
-            from windows_capture import WindowsCapture
+            from windows_capture import WindowsCapture  # noqa: F401 - présence vérifiée
         except ImportError as exc:  # pragma: no cover - dépend de Windows
             raise CaptureError(
                 "Le module de capture Windows (windows-capture) n'est pas installé.",
@@ -52,6 +64,18 @@ class WgcBackend:
             if window.monitor_index is None:
                 raise CaptureError("Impossible de déterminer l'écran du jeu.")
             kwargs = {"monitor_index": window.monitor_index}
+
+        if not _WGC_LOCK.acquire(timeout=self.timeout_s + 3.0):
+            raise CaptureError(
+                "Une autre capture est en cours.", detail=f"{self.name}: verrou occupé"
+            )
+        try:
+            return self._grab(kwargs)
+        finally:
+            _WGC_LOCK.release()
+
+    def _grab(self, kwargs: dict) -> np.ndarray:  # type: ignore[type-arg]
+        from windows_capture import WindowsCapture
 
         done = threading.Event()
         state: dict[str, object] = {"frames": 0}
@@ -82,14 +106,22 @@ class WgcBackend:
         except Exception as exc:
             raise CaptureError("La capture Windows (WGC) a été refusée.", detail=repr(exc)) from exc
 
+        _OPEN["n"] += 1
         got_frame = done.wait(self.timeout_s)
         try:
             control.stop()
         except Exception:  # noqa: BLE001 - déjà arrêtée
             pass
-        deadline = time.monotonic() + 1.0
+        # On attend VRAIMENT la fin de la session (jusqu'à 3 s) : l'abandonner en cours de
+        # route laissait des ressources GPU derrière elle, capture après capture.
+        deadline = time.monotonic() + 3.0
         while not control.is_finished() and time.monotonic() < deadline:
             time.sleep(0.01)
+        if control.is_finished():
+            _OPEN["n"] -= 1
+        else:
+            log.warning("Capture Windows pas refermée après 3 s (%d en suspens)", _OPEN["n"])
+        del capture
 
         pixels = state.get("pixels")
         if not got_frame or pixels is None:

@@ -63,6 +63,7 @@ COPILOT_TURN = (
     "(Personne ne t'a rien demandé : c'est TOI qui as parlé de toi-même, en mode Copilote, "
     "après un coup d'œil à l'écran.)"
 )
+HEALTH_EVERY_MS = 5 * 60 * 1000
 COPILOT_PROBE_MS = 1000  # Copilote : vérifie chaque seconde s'il faut regarder
 PEER_ECHO_S = 0.8  # micro encore coupé juste après la voix de l'autre robot (écho)
 NOTICES = ("⚠", "Patiente", "Mets le jeu", "Raccourci :", "Confirmation demandée")
@@ -1115,6 +1116,31 @@ class MainWindow(QMainWindow):
         removed = timeline.clear()
         self._notify(f"Mémoire de partie effacée ({removed} image(s)).")
         self._load_settings_page()
+
+    def check_health(self) -> None:
+        """Toutes les 5 min : l'état au journal ; si ça dérape, ménage + ralentissement."""
+        import gc
+
+        from alicia.core.health import measure
+
+        health = measure()
+        log.info("Santé : %s", health.text())
+        problems = health.problems()
+        if not problems:
+            return
+        log.warning("Santé : ça dérape (%s) — ménage automatique", ", ".join(problems))
+        gc.collect()
+        _trim_working_set()
+        live = self.live
+        if health.captures_open > 3 and live is not None:
+            live.interval_s = max(live.interval_s * 2, 5.0)  # moins de captures pour souffler
+        if not getattr(self, "_health_warned", False):
+            self._health_warned = True
+            self._notify(
+                "⚠ COP'IA'LOTE consomme trop après une longue session ("
+                + ", ".join(problems)
+                + ") : ménage fait. Si ça revient, relance-le et envoie-moi le Journal."
+            )
 
     def purge(self) -> None:
         """🧹 Purge : mémoire de partie, captures enregistrées, anciens journaux, mémoire vive.
@@ -4973,6 +4999,10 @@ class MainWindow(QMainWindow):
         self._copilot_running = False
         self.copilot_timer = QTimer(self)
         self.copilot_timer.timeout.connect(self._copilot_tick)
+        # Santé sur la durée : mémoire, poignées, captures ouvertes (toutes les 5 min)
+        self.health_timer = QTimer(self)
+        self.health_timer.timeout.connect(self.check_health)
+        self.health_timer.start(HEALTH_EVERY_MS)
         self.settings_page.load_copilot(settings)
         self.set_copilot(settings.enabled, save=False)
 

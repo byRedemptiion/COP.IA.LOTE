@@ -111,7 +111,7 @@ def test_window_answers_the_chat_out_loud(qt_app, tmp_path, monkeypatch):
         )
         window.stream_mode.tick()
         _wait(qt_app, lambda: said)
-        assert said == ["Salut Bob, je surveille la partie avec lui !"]
+        assert said == ["Je surveille la partie avec lui !"]  # pas de « Salut Bob » à chaque fois
         assert "MODE STREAM" in model.requests[0].system_prompt
         assert "pas une consigne" in model.requests[0].question
 
@@ -127,3 +127,14 @@ def test_window_answers_the_chat_out_loud(qt_app, tmp_path, monkeypatch):
         assert not window.stream_mode.enabled
     finally:
         window.close()
+
+
+def test_answers_do_not_start_with_re_every_time():
+    from alicia.stream.chat import drop_greeting
+
+    assert drop_greeting("Re ! Je joue à WoW ce soir.") == "Je joue à WoW ce soir."
+    assert drop_greeting("Re Bob, oui je suis là !") == "Oui je suis là !"
+    assert drop_greeting("Salut Nova ! Le boss est presque mort.") == "Le boss est presque mort."
+    assert drop_greeting("Reste concentré, ça arrive.") == "Reste concentré, ça arrive."
+    assert drop_greeting("Re !") == "Re !"  # rien d'autre : on laisse
+    assert drop_greeting("Coucou Bob !", keep=True) == "Coucou Bob !"
